@@ -143,25 +143,62 @@ export function Editor() {
       const svFlat = flatten(svRaw);
       const allKeys = [...new Set([...Object.keys(enFlat), ...Object.keys(svFlat)])].sort();
 
-      // Upsert alla nycklar till Supabase
-      const rows = allKeys.map((key) => ({
-        project_id: id!,
-        key,
-        source_text: enFlat[key] ?? '',
-        target_text: svFlat[key] ?? '',
-      }));
+      // Hämta befintliga nycklar från databasen
+      const existingByKey = new Map<string, Translation>();
+      for (const t of translations) {
+        existingByKey.set(t.key, t);
+      }
 
-      // Batch i grupper om 500
-      for (let i = 0; i < rows.length; i += 500) {
-        const batch = rows.slice(i, i + 500);
+      const toInsert: { project_id: string; key: string; source_text: string; target_text: string }[] = [];
+      const toUpdate: { id: string; source_text: string }[] = [];
+
+      for (const key of allKeys) {
+        const existing = existingByKey.get(key);
+        const newSourceText = enFlat[key] ?? '';
+        const newTargetText = svFlat[key] ?? '';
+
+        if (!existing) {
+          // Ny nyckel → lägg till
+          toInsert.push({
+            project_id: id!,
+            key,
+            source_text: newSourceText,
+            target_text: newTargetText,
+          });
+        } else if (existing.source_text !== newSourceText) {
+          // Engelska texten har ändrats → uppdatera source + markera ogranskad
+          toUpdate.push({
+            id: existing.id,
+            source_text: newSourceText,
+          });
+        }
+        // Annars: ingen ändring → ignorera
+      }
+
+      // Infoga nya nycklar i batchar
+      for (let i = 0; i < toInsert.length; i += 500) {
+        const batch = toInsert.slice(i, i + 500);
+        const { error } = await supabase.from('translations').insert(batch);
+        if (error) throw error;
+      }
+
+      // Uppdatera ändrade engelska texter + sätt reviewed = false
+      for (const item of toUpdate) {
         const { error } = await supabase
           .from('translations')
-          .upsert(batch, { onConflict: 'project_id,key' });
+          .update({ source_text: item.source_text, reviewed: false })
+          .eq('id', item.id);
         if (error) throw error;
       }
 
       await loadTranslations();
-      setSaveStatus(`Importerade ${allKeys.length} nycklar`);
+
+      const stats: string[] = [];
+      if (toInsert.length > 0) stats.push(`${toInsert.length} nya`);
+      if (toUpdate.length > 0) stats.push(`${toUpdate.length} uppdaterade`);
+      const ignored = allKeys.length - toInsert.length - toUpdate.length;
+      if (ignored > 0) stats.push(`${ignored} oförändrade`);
+      setSaveStatus(`Import: ${stats.join(', ')}`);
     } catch (err) {
       alert('Import misslyckades: ' + (err as Error).message);
     }
