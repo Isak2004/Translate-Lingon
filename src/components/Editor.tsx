@@ -89,17 +89,30 @@ export function Editor() {
   }
 
   async function loadTranslations() {
-    const { data, error } = await supabase
-      .from('translations')
-      .select('*')
-      .eq('project_id', id)
-      .order('key');
+    // Supabase returnerar max 1000 rader per anrop — hämta alla med paginering
+    let all: Translation[] = [];
+    let from = 0;
+    const pageSize = 1000;
 
-    if (error) {
-      console.error('Kunde inte ladda översättningar:', error);
-    } else {
-      setTranslations(data ?? []);
+    while (true) {
+      const { data, error } = await supabase
+        .from('translations')
+        .select('*')
+        .eq('project_id', id)
+        .order('key')
+        .range(from, from + pageSize - 1);
+
+      if (error) {
+        console.error('Kunde inte ladda översättningar:', error);
+        break;
+      }
+
+      all = all.concat(data ?? []);
+      if (!data || data.length < pageSize) break;
+      from += pageSize;
     }
+
+    setTranslations(all);
     setLoading(false);
   }
 
