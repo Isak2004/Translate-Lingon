@@ -191,11 +191,28 @@ export function Editor() {
         if (error) throw error;
       }
 
+      // Ta bort nycklar som inte längre finns i JSON-filerna
+      const importedKeySet = new Set(allKeys);
+      const toDelete = translations.filter((t) => !importedKeySet.has(t.key));
+
+      if (toDelete.length > 0) {
+        const deleteIds = toDelete.map((t) => t.id);
+        for (let i = 0; i < deleteIds.length; i += 500) {
+          const batch = deleteIds.slice(i, i + 500);
+          const { error } = await supabase
+            .from('translations')
+            .delete()
+            .in('id', batch);
+          if (error) throw error;
+        }
+      }
+
       await loadTranslations();
 
       const stats: string[] = [];
       if (toInsert.length > 0) stats.push(`${toInsert.length} nya`);
       if (toUpdate.length > 0) stats.push(`${toUpdate.length} uppdaterade`);
+      if (toDelete.length > 0) stats.push(`${toDelete.length} borttagna`);
       const ignored = allKeys.length - toInsert.length - toUpdate.length;
       if (ignored > 0) stats.push(`${ignored} oförändrade`);
       setSaveStatus(`Import: ${stats.join(', ')}`);
