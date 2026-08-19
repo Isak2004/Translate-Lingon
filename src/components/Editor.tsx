@@ -4,7 +4,7 @@ import { supabase } from '../supabase';
 import { TranslationRow } from './TranslationRow';
 import { ThemeToggle } from './ThemeToggle';
 import { History } from './History';
-import type { Project, Translation, FlatMap } from '../types';
+import type { Project, Translation, FlatMap, AiFinding } from '../types';
 
 // ── JSON plattning ──
 
@@ -44,7 +44,7 @@ interface Section {
   missingCount: number;
 }
 
-type Filter = 'all' | 'edited' | 'missing' | 'long' | 'unreviewed';
+type Filter = 'all' | 'edited' | 'missing' | 'long' | 'unreviewed' | 'ai-flagged';
 
 export function Editor() {
   const { id } = useParams<{ id: string }>();
@@ -67,6 +67,12 @@ export function Editor() {
   // Historik
   const [historyKey, setHistoryKey] = useState<string | null>(null);
   const [historyTranslationId, setHistoryTranslationId] = useState<string | null>(null);
+
+  // AI-granskning
+  const [aiFindings, setAiFindings] = useState<AiFinding[]>([]);
+  const [aiReviewing, setAiReviewing] = useState(false);
+  const [aiProgress, setAiProgress] = useState('');
+  const [showAiPanel, setShowAiPanel] = useState(false);
 
   // Statusindicator
   const [saveStatus, setSaveStatus] = useState('');
@@ -334,6 +340,77 @@ export function Editor() {
     URL.revokeObjectURL(url);
   }
 
+  // ── AI-granskning ──
+
+  async function handleAiReview() {
+    if (translations.length === 0) return;
+    setAiReviewing(true);
+    setAiFindings([]);
+    setShowAiPanel(true);
+
+    // Filtrera bort tomma — inget att granska
+    const toReview = translations.filter((t) => t.target_text && t.source_text);
+
+    // Skicka i batchar om ~100 nycklar
+    const BATCH_SIZE = 100;
+    const allFindings: AiFinding[] = [];
+    const totalBatches = Math.ceil(toReview.length / BATCH_SIZE);
+
+    for (let i = 0; i < toReview.length; i += BATCH_SIZE) {
+      const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+      setAiProgress(`Granskar batch ${batchNum} av ${totalBatches}...`);
+
+      const batch = toReview.slice(i, i + BATCH_SIZE).map((t) => ({
+        key: t.key,
+        source_text: t.source_text,
+        target_text: t.target_text,
+      }));
+
+      try {
+        const res = await fetch('/.netlify/functions/review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ translations: batch }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: 'Okänt fel' }));
+          console.error('AI review error:', err);
+          setAiProgress(`Fel i batch ${batchNum}: ${err.error ?? 'Okänt fel'}`);
+          continue;
+        }
+
+        const data = await res.json();
+        if (data.findings?.length > 0) {
+          allFindings.push(...data.findings);
+          setAiFindings([...allFindings]);
+        }
+      } catch (err) {
+        console.error('Network error:', err);
+        setAiProgress(`Nätverksfel i batch ${batchNum}`);
+      }
+    }
+
+    setAiFindings(allFindings);
+    setAiProgress(
+      allFindings.length > 0
+        ? `Klar! ${allFindings.length} problem hittade.`
+        : 'Klar! Inga problem hittades.'
+    );
+    setAiReviewing(false);
+  }
+
+  // Map för snabb uppslagning: key → finding(s)
+  const aiFindingsByKey = (() => {
+    const map = new Map<string, AiFinding[]>();
+    for (const f of aiFindings) {
+      const list = map.get(f.key) ?? [];
+      list.push(f);
+      map.set(f.key, list);
+    }
+    return map;
+  })();
+
   // ── Sektioner (top-level nycklar) ──
 
   const sections: Section[] = (() => {
@@ -385,6 +462,9 @@ export function Editor() {
     } else if (filter === 'unreviewed') {
       const base = search ? items : translations;
       items = base.filter((t) => !t.reviewed);
+    } else if (filter === 'ai-flagged') {
+      const base = search ? items : translations;
+      items = base.filter((t) => aiFindingsByKey.has(t.key));
     }
 
     return items;
@@ -432,13 +512,13 @@ export function Editor() {
         </div>
 
         <div className="filter-pills">
-          {(['all', 'unreviewed', 'edited', 'missing', 'long'] as Filter[]).map((f) => (
+          {(['all', 'unreviewed', 'edited', 'missing', 'long', ...(aiFindings.length > 0 ? ['ai-flagged'] : [])] as Filter[]).map((f) => (
             <button
               key={f}
-              className={`pill ${filter === f ? 'active' : ''}`}
+              className={`pill ${filter === f ? 'active' : ''} ${f === 'ai-flagged' ? 'pill-ai' : ''}`}
               onClick={() => setFilter(f)}
             >
-              {f === 'all' ? 'Alla' : f === 'unreviewed' ? 'Ej granskade' : f === 'edited' ? 'Ändrade' : f === 'missing' ? 'Saknas' : 'Långa'}
+              {f === 'all' ? 'Alla' : f === 'unreviewed' ? 'Ej granskade' : f === 'edited' ? 'Ändrade' : f === 'missing' ? 'Saknas' : f === 'long' ? 'Långa' : `🤖 AI (${aiFindings.length})`}
             </button>
           ))}
         </div>
@@ -457,6 +537,13 @@ export function Editor() {
 
         <button className="action-btn import-btn" onClick={handleImport} disabled={importing}>
           {importing ? 'Importerar...' : 'Importera JSON'}
+        </button>
+        <button
+          className="action-btn ai-btn"
+          onClick={handleAiReview}
+          disabled={aiReviewing || translations.length === 0}
+        >
+          {aiReviewing ? '🤖 Granskar...' : '🤖 Granska med AI'}
         </button>
         <button
           className="action-btn download-btn"
@@ -503,6 +590,48 @@ export function Editor() {
 
         {/* Content */}
         <div className="content">
+          {/* AI-granskning progress/resultat */}
+          {(aiReviewing || aiFindings.length > 0) && showAiPanel && (
+            <div className="ai-panel">
+              <div className="ai-panel-header">
+                <span className="ai-panel-title">🤖 AI-granskning</span>
+                <span className="ai-panel-status">{aiProgress}</span>
+                {!aiReviewing && (
+                  <button
+                    className="ai-panel-close"
+                    onClick={() => setShowAiPanel(false)}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              {aiReviewing && (
+                <div className="ai-progress-bar">
+                  <div className="ai-progress-bar-fill" />
+                </div>
+              )}
+              {aiFindings.length > 0 && (
+                <div className="ai-panel-summary">
+                  <span className="ai-count ai-count-error">
+                    🔴 {aiFindings.filter((f) => f.severity === 'error').length} fel
+                  </span>
+                  <span className="ai-count ai-count-warning">
+                    🟡 {aiFindings.filter((f) => f.severity === 'warning').length} varningar
+                  </span>
+                  <span className="ai-count ai-count-info">
+                    🔵 {aiFindings.filter((f) => f.severity === 'info').length} tips
+                  </span>
+                  <button
+                    className="pill pill-ai"
+                    onClick={() => setFilter('ai-flagged')}
+                  >
+                    Visa alla flaggade
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {filteredTranslations.length === 0 ? (
             <div className="no-results">
               {translations.length === 0
@@ -515,6 +644,7 @@ export function Editor() {
                 key={t.id}
                 translation={t}
                 isEdited={editedKeys.has(t.key)}
+                aiFindings={aiFindingsByKey.get(t.key)}
                 onEdit={handleEdit}
                 onToggleReviewed={handleToggleReviewed}
                 onShowHistory={() => {

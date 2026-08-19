@@ -601,6 +601,137 @@ a:hover { text-decoration: underline; }
 }
 .theme-toggle:hover { background: var(--panel); color: var(--ink); }
 
+/* ── AI review button ── */
+.ai-btn {
+  background: linear-gradient(135deg, #7c3aed, #6366f1);
+  color: #fff;
+}
+.ai-btn:hover { background: linear-gradient(135deg, #6d28d9, #4f46e5); }
+.ai-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── AI panel (progress + summary) ── */
+.ai-panel {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+.ai-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.ai-panel-title { font-weight: 600; font-size: 14px; color: var(--ink); }
+.ai-panel-status { font-size: 12px; color: var(--muted); flex: 1; }
+.ai-panel-close {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--faint);
+  font-size: 16px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-sm);
+  transition: all .15s;
+}
+.ai-panel-close:hover { background: var(--panel); color: var(--ink); }
+
+.ai-progress-bar {
+  height: 3px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.ai-progress-bar-fill {
+  height: 100%;
+  width: 40%;
+  background: linear-gradient(90deg, #7c3aed, #6366f1, #7c3aed);
+  background-size: 200% 100%;
+  animation: ai-shimmer 1.5s ease-in-out infinite;
+  border-radius: 2px;
+}
+@keyframes ai-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
+.ai-panel-summary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  font-size: 13px;
+}
+.ai-count { font-weight: 500; }
+
+/* ── AI filter pill ── */
+.pill-ai {
+  background: linear-gradient(135deg, #7c3aed, #6366f1);
+  color: #fff;
+  border-color: transparent;
+}
+.pill-ai:hover { opacity: 0.9; background: linear-gradient(135deg, #6d28d9, #4f46e5); }
+.pill.active.pill-ai { background: linear-gradient(135deg, #6d28d9, #4f46e5); color: #fff; border-color: transparent; }
+
+/* ── AI flag on entry ── */
+.entry.ai-flagged { border-left: 3px solid transparent; }
+.entry.ai-error { border-left-color: var(--error); }
+.entry.ai-warning { border-left-color: var(--amber); }
+.entry.ai-info { border-left-color: #6366f1; }
+
+.ai-flag-btn {
+  border: none;
+  background: none;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  font-family: inherit;
+  font-weight: 600;
+  transition: all .15s;
+}
+.ai-flag-error { background: color-mix(in srgb, var(--error) 15%, transparent); color: var(--error); }
+.ai-flag-warning { background: var(--amber-tint); color: var(--amber); }
+.ai-flag-info { background: color-mix(in srgb, #6366f1 12%, transparent); color: #6366f1; }
+.ai-flag-btn:hover { opacity: 0.8; }
+
+/* ── AI findings (inline, below entry) ── */
+.ai-findings {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+.ai-finding {
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.ai-finding-error { background: color-mix(in srgb, var(--error) 8%, transparent); border: 1px solid color-mix(in srgb, var(--error) 25%, transparent); }
+.ai-finding-warning { background: var(--amber-tint); border: 1px solid color-mix(in srgb, var(--amber) 30%, transparent); }
+.ai-finding-info { background: color-mix(in srgb, #6366f1 6%, transparent); border: 1px solid color-mix(in srgb, #6366f1 20%, transparent); }
+
+.ai-finding-header { margin-bottom: 4px; }
+.ai-severity { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; }
+.ai-severity-error { color: var(--error); }
+.ai-severity-warning { color: var(--amber); }
+.ai-severity-info { color: #6366f1; }
+
+.ai-finding-issue { color: var(--ink); }
+.ai-finding-suggestion {
+  margin-top: 4px;
+  color: var(--sage);
+  font-style: italic;
+}
+.ai-suggestion-label { font-weight: 600; font-style: normal; }
+
 /* ── Responsive ── */
 @media (max-width: 900px) {
   .sidebar { display: none; }

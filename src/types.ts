@@ -28,5 +28,13 @@ export interface HistoryEntry {
   created_at: string;
 }
 
+/** AI-granskningsresultat */
+export interface AiFinding {
+  key: string;
+  issue: string;
+  suggestion: string | null;
+  severity: 'error' | 'warning' | 'info';
+}
+
 /** Plattad nyckel-värde-map (dot-notation) */
 export type FlatMap = Record<string, string>;
