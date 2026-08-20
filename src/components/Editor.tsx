@@ -378,9 +378,21 @@ export function Editor() {
         });
 
         if (!res.ok) {
-          const err = await res.json().catch(() => ({ error: 'Okänt fel' }));
-          console.error('AI review error:', err);
-          lastError = err.error ?? err.detail ?? 'Okänt fel';
+          const text = await res.text();
+          let detail = `HTTP ${res.status}`;
+          try {
+            const err = JSON.parse(text);
+            detail = err.error ?? err.detail ?? detail;
+          } catch {
+            // Netlify kan returnera HTML vid krasch
+            if (text.includes('TimeoutError') || text.includes('Task timed out')) {
+              detail = 'Funktionen tog för lång tid (timeout)';
+            } else {
+              detail += `: ${text.substring(0, 100)}`;
+            }
+          }
+          console.error('AI review error:', res.status, text);
+          lastError = detail;
           failedBatches++;
           continue;
         }
