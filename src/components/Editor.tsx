@@ -355,6 +355,8 @@ export function Editor() {
     const BATCH_SIZE = 100;
     const allFindings: AiFinding[] = [];
     const totalBatches = Math.ceil(toReview.length / BATCH_SIZE);
+    let failedBatches = 0;
+    let lastError = '';
 
     for (let i = 0; i < toReview.length; i += BATCH_SIZE) {
       const batchNum = Math.floor(i / BATCH_SIZE) + 1;
@@ -376,7 +378,8 @@ export function Editor() {
         if (!res.ok) {
           const err = await res.json().catch(() => ({ error: 'Okänt fel' }));
           console.error('AI review error:', err);
-          setAiProgress(`Fel i batch ${batchNum}: ${err.error ?? 'Okänt fel'}`);
+          lastError = err.error ?? err.detail ?? 'Okänt fel';
+          failedBatches++;
           continue;
         }
 
@@ -387,16 +390,26 @@ export function Editor() {
         }
       } catch (err) {
         console.error('Network error:', err);
-        setAiProgress(`Nätverksfel i batch ${batchNum}`);
+        lastError = 'Kunde inte nå servern';
+        failedBatches++;
       }
     }
 
     setAiFindings(allFindings);
-    setAiProgress(
-      allFindings.length > 0
-        ? `Klar! ${allFindings.length} problem hittade.`
-        : 'Klar! Inga problem hittades.'
-    );
+
+    if (failedBatches === totalBatches) {
+      setAiProgress(`❌ Granskningen misslyckades. ${lastError}`);
+    } else if (failedBatches > 0) {
+      setAiProgress(
+        `⚠️ ${failedBatches} av ${totalBatches} batchar misslyckades. ${allFindings.length} problem hittade.`
+      );
+    } else {
+      setAiProgress(
+        allFindings.length > 0
+          ? `✅ Klar! ${allFindings.length} problem hittade.`
+          : '✅ Klar! Inga problem hittades.'
+      );
+    }
     setAiReviewing(false);
   }
 

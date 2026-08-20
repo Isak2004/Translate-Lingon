@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/themecontext.tsx","./src/main.tsx","./src/supabase.ts","./src/types.ts","./src/vite-env.d.ts","./src/components/editor.tsx","./src/components/history.tsx","./src/components/projectlist.tsx","./src/components/themetoggle.tsx","./src/components/translationrow.tsx"],"version":"5.7.3"}
