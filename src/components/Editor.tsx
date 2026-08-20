@@ -73,6 +73,7 @@ export function Editor() {
   const [aiReviewing, setAiReviewing] = useState(false);
   const [aiProgress, setAiProgress] = useState('');
   const [showAiPanel, setShowAiPanel] = useState(false);
+  const [aiDone, setAiDone] = useState(false);
 
   // Statusindicator
   const [saveStatus, setSaveStatus] = useState('');
@@ -347,6 +348,7 @@ export function Editor() {
     setAiReviewing(true);
     setAiFindings([]);
     setShowAiPanel(true);
+    setAiDone(false);
 
     // Filtrera bort tomma — inget att granska
     const toReview = translations.filter((t) => t.target_text && t.source_text);
@@ -411,6 +413,7 @@ export function Editor() {
       );
     }
     setAiReviewing(false);
+    setAiDone(true);
   }
 
   // Map för snabb uppslagning: key → finding(s)
@@ -604,7 +607,7 @@ export function Editor() {
         {/* Content */}
         <div className="content">
           {/* AI-granskning progress/resultat */}
-          {(aiReviewing || aiFindings.length > 0) && showAiPanel && (
+          {(aiReviewing || aiFindings.length > 0 || aiDone) && showAiPanel && (
             <div className="ai-panel">
               <div className="ai-panel-header">
                 <span className="ai-panel-title">🤖 AI-granskning</span>
