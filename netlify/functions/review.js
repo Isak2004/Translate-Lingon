@@ -1,5 +1,5 @@
-// Netlify Function — proxy till Claude API för översättningsgranskning.
-// ANTHROPIC_API_KEY sätts som miljövariabel i Netlify dashboard.
+// Netlify Function — proxy till OpenAI API för översättningsgranskning.
+// ANTHROPIC_API_KEY (OpenAI-nyckel) sätts som miljövariabel i Netlify dashboard.
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
@@ -10,7 +10,7 @@ exports.handler = async (event) => {
   if (!apiKey) {
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: 'ANTHROPIC_API_KEY saknas i miljövariabler' }),
+      body: JSON.stringify({ error: 'API-nyckel saknas i miljövariabler' }),
     };
   }
 
@@ -47,18 +47,20 @@ Om en översättning är helt ok, inkludera den INTE.
 Svara bara med JSON-arrayen, inget annat.`;
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
+        'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'gpt-4o-mini',
         max_tokens: 8192,
-        system: systemPrompt,
         messages: [
+          {
+            role: 'system',
+            content: systemPrompt,
+          },
           {
             role: 'user',
             content: `Granska följande översättningar:\n\n${translationList}`,
@@ -69,23 +71,23 @@ Svara bara med JSON-arrayen, inget annat.`;
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Anthropic API error:', errorText);
+      console.error('OpenAI API error:', errorText);
       return {
         statusCode: 502,
-        body: JSON.stringify({ error: 'Kunde inte nå Claude API', detail: errorText }),
+        body: JSON.stringify({ error: 'Kunde inte nå OpenAI API', detail: errorText }),
       };
     }
 
     const data = await response.json();
-    const text = data.content?.[0]?.text ?? '[]';
+    const text = data.choices?.[0]?.message?.content ?? '[]';
 
-    // Extrahera JSON-arrayen (Claude kan wrappa i markdown-block)
+    // Extrahera JSON-arrayen (modellen kan wrappa i markdown-block)
     let findings;
     try {
       const jsonMatch = text.match(/\[[\s\S]*\]/);
       findings = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
     } catch {
-      console.error('Kunde inte parsa Claude-svar:', text);
+      console.error('Kunde inte parsa AI-svar:', text);
       findings = [];
     }
 

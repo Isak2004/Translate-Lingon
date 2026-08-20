@@ -1,5 +1,5 @@
 // Enkel test-funktion — anropa /.netlify/functions/review-test
-// för att verifiera att Netlify Functions körs och API-nyckeln finns.
+// för att verifiera att Netlify Functions körs och OpenAI API-nyckeln finns.
 
 exports.handler = async () => {
   const hasKey = !!process.env.ANTHROPIC_API_KEY;
