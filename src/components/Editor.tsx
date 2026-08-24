@@ -4,7 +4,7 @@ import { supabase } from '../supabase';
 import { TranslationRow } from './TranslationRow';
 import { ThemeToggle } from './ThemeToggle';
 import { History } from './History';
-import type { Project, Translation, FlatMap, AiFinding } from '../types';
+import type { Project, Translation, FlatMap, AiFinding, GlossaryTerm } from '../types';
 
 // ── JSON plattning ──
 
@@ -75,6 +75,10 @@ export function Editor() {
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [aiDone, setAiDone] = useState(false);
 
+  // Ordlista
+  const [glossary, setGlossary] = useState<GlossaryTerm[]>([]);
+  const [importingGlossary, setImportingGlossary] = useState(false);
+
   // Statusindicator
   const [saveStatus, setSaveStatus] = useState('');
 
@@ -84,6 +88,7 @@ export function Editor() {
     if (!id) return;
     loadProject();
     loadTranslations();
+    loadGlossary();
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadProject() {
@@ -121,6 +126,116 @@ export function Editor() {
 
     setTranslations(all);
     setLoading(false);
+  }
+
+  async function loadGlossary() {
+    const { data } = await supabase
+      .from('glossary_terms')
+      .select('*')
+      .eq('project_id', id)
+      .order('source_term');
+    setGlossary(data ?? []);
+  }
+
+  // ── Import av ordlista ──
+
+  async function importGlossary(file: File) {
+    setImportingGlossary(true);
+    try {
+      const raw = JSON.parse(await file.text());
+      const terms = raw.terms ?? raw; // stöd både { terms: [...] } och ren array
+
+      if (!Array.isArray(terms)) {
+        throw new Error('Filen innehåller inte en terms-array');
+      }
+
+      // Hämta befintliga termer
+      const existingByTerm = new Map<string, GlossaryTerm>();
+      for (const g of glossary) {
+        existingByTerm.set(g.source_term, g);
+      }
+
+      const toInsert: {
+        project_id: string;
+        source_term: string;
+        definition: string;
+        approved_translation: string | null;
+        notes: string;
+        do_not_translate: boolean;
+      }[] = [];
+      const toUpdate: {
+        id: string;
+        definition: string;
+        approved_translation: string | null;
+        notes: string;
+        do_not_translate: boolean;
+      }[] = [];
+
+      for (const term of terms) {
+        const svTranslation = term.approved_translations?.sv ?? null;
+        const existing = existingByTerm.get(term.source_term);
+
+        if (!existing) {
+          toInsert.push({
+            project_id: id!,
+            source_term: term.source_term,
+            definition: term.definition ?? '',
+            approved_translation: svTranslation,
+            notes: term.notes ?? '',
+            do_not_translate: term.do_not_translate ?? false,
+          });
+        } else {
+          // Uppdatera om något ändrats
+          const changed =
+            existing.definition !== (term.definition ?? '') ||
+            existing.approved_translation !== svTranslation ||
+            existing.notes !== (term.notes ?? '') ||
+            existing.do_not_translate !== (term.do_not_translate ?? false);
+
+          if (changed) {
+            toUpdate.push({
+              id: existing.id,
+              definition: term.definition ?? '',
+              approved_translation: svTranslation,
+              notes: term.notes ?? '',
+              do_not_translate: term.do_not_translate ?? false,
+            });
+          }
+        }
+      }
+
+      // Infoga nya
+      if (toInsert.length > 0) {
+        const { error } = await supabase.from('glossary_terms').insert(toInsert);
+        if (error) throw error;
+      }
+
+      // Uppdatera ändrade
+      for (const item of toUpdate) {
+        const { error } = await supabase
+          .from('glossary_terms')
+          .update({
+            definition: item.definition,
+            approved_translation: item.approved_translation,
+            notes: item.notes,
+            do_not_translate: item.do_not_translate,
+          })
+          .eq('id', item.id);
+        if (error) throw error;
+      }
+
+      await loadGlossary();
+
+      const stats: string[] = [];
+      if (toInsert.length > 0) stats.push(`${toInsert.length} nya`);
+      if (toUpdate.length > 0) stats.push(`${toUpdate.length} uppdaterade`);
+      const unchanged = terms.length - toInsert.length - toUpdate.length;
+      if (unchanged > 0) stats.push(`${unchanged} oförändrade`);
+      setSaveStatus(`Ordlista: ${stats.join(', ')}`);
+    } catch (err) {
+      alert('Ordlisteimport misslyckades: ' + (err as Error).message);
+    }
+    setImportingGlossary(false);
   }
 
   // ── Import av JSON-filer ──
@@ -370,11 +485,20 @@ export function Editor() {
         target_text: t.target_text,
       }));
 
+      // Skicka ordlistan med (bara i första batchen, eller alltid — den är liten)
+      const glossaryForApi = glossary.map((g) => ({
+        source_term: g.source_term,
+        definition: g.definition,
+        approved_translation: g.approved_translation,
+        notes: g.notes,
+        do_not_translate: g.do_not_translate,
+      }));
+
       try {
         const res = await fetch('/.netlify/functions/review', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ translations: batch }),
+          body: JSON.stringify({ translations: batch, glossary: glossaryForApi }),
         });
 
         if (!res.ok) {
@@ -566,6 +690,24 @@ export function Editor() {
         <button className="action-btn import-btn" onClick={handleImport} disabled={importing}>
           {importing ? 'Importerar...' : 'Importera JSON'}
         </button>
+        <label className={`action-btn glossary-btn ${glossary.length > 0 ? 'has-glossary' : ''}`}>
+          {importingGlossary
+            ? '📖 Importerar...'
+            : glossary.length > 0
+              ? `📖 Ordlista (${glossary.length})`
+              : '📖 Ladda ordlista'}
+          <input
+            type="file"
+            accept=".json"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) importGlossary(f);
+              e.target.value = '';
+            }}
+            disabled={importingGlossary}
+          />
+        </label>
         <button
           className="action-btn ai-btn"
           onClick={handleAiReview}
@@ -623,6 +765,9 @@ export function Editor() {
             <div className="ai-panel">
               <div className="ai-panel-header">
                 <span className="ai-panel-title">🤖 AI-granskning</span>
+                {glossary.length > 0 && (
+                  <span className="ai-glossary-badge">📖 {glossary.length} termer</span>
+                )}
                 <span className="ai-panel-status">{aiProgress}</span>
                 {!aiReviewing && (
                   <button

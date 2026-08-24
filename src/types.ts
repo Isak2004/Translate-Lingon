@@ -28,6 +28,18 @@ export interface HistoryEntry {
   created_at: string;
 }
 
+export interface GlossaryTerm {
+  id: string;
+  project_id: string;
+  source_term: string;
+  definition: string;
+  approved_translation: string | null;
+  notes: string;
+  do_not_translate: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 /** AI-granskningsresultat */
 export interface AiFinding {
   key: string;

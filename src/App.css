@@ -311,6 +311,20 @@ a:hover { text-decoration: underline; }
 .download-btn:hover { background: var(--sage-hover); }
 .download-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
+/* Ordlista-knapp */
+.glossary-btn {
+  background: var(--bg);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+.glossary-btn:hover { background: var(--panel); }
+.glossary-btn.has-glossary {
+  background: var(--amber-tint);
+  border-color: color-mix(in srgb, var(--amber) 40%, transparent);
+  color: var(--amber);
+}
+
 .save-indicator { font-size: 11px; color: var(--sage); white-space: nowrap; font-weight: 500; }
 
 /* ── Editor body ── */
@@ -626,6 +640,14 @@ a:hover { text-decoration: underline; }
 }
 .ai-panel-title { font-weight: 600; font-size: 14px; color: var(--ink); }
 .ai-panel-status { font-size: 12px; color: var(--muted); flex: 1; }
+.ai-glossary-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--amber);
+  background: var(--amber-tint);
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+}
 .ai-panel-close {
   border: none;
   background: none;
