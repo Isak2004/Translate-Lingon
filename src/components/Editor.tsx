@@ -550,6 +550,38 @@ export function Editor() {
     }
     setAiReviewing(false);
     setAiDone(true);
+
+    // Markera oflaggade keys som granskade (bara om granskningen lyckades)
+    if (failedBatches < totalBatches) {
+      const flaggedKeys = new Set(allFindings.map((f) => f.key));
+      const toMarkReviewed = toReview.filter(
+        (t) => !flaggedKeys.has(t.key) && !t.reviewed
+      );
+
+      if (toMarkReviewed.length > 0) {
+        // Uppdatera lokalt direkt
+        const reviewedIds = new Set(toMarkReviewed.map((t) => t.id));
+        setTranslations((prev) =>
+          prev.map((t) =>
+            reviewedIds.has(t.id) ? { ...t, reviewed: true } : t
+          )
+        );
+
+        // Spara till Supabase i batchar
+        const ids = toMarkReviewed.map((t) => t.id);
+        for (let i = 0; i < ids.length; i += 500) {
+          const batch = ids.slice(i, i + 500);
+          await supabase
+            .from('translations')
+            .update({ reviewed: true })
+            .in('id', batch);
+        }
+
+        setAiProgress((prev) =>
+          prev + ` ${toMarkReviewed.length} keys markerade som granskade.`
+        );
+      }
+    }
   }
 
   // Map för snabb uppslagning: key → finding(s)
