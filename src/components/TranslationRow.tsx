@@ -3,29 +3,37 @@ import type { Translation, AiFinding } from '../types';
 
 interface Props {
   translation: Translation;
-  isEdited: boolean;
   aiFindings?: AiFinding[];
-  onEdit: (id: string, key: string, newText: string) => void;
+  hasHistory: boolean;
+  onSave: (id: string, oldText: string, newText: string) => void;
   onToggleReviewed: (id: string) => void;
   onShowHistory: () => void;
 }
 
 export const TranslationRow = memo(function TranslationRow({
   translation: t,
-  isEdited,
   aiFindings,
-  onEdit,
+  hasHistory,
+  onSave,
   onToggleReviewed,
   onShowHistory,
 }: Props) {
   const [showFindings, setShowFindings] = useState(false);
+  const [localText, setLocalText] = useState(t.target_text);
+  const [saving, setSaving] = useState(false);
   const ref = useRef<HTMLTextAreaElement | HTMLInputElement>(null);
+
   const isMissing = !t.target_text && !!t.source_text;
   const isLong =
     t.source_text.length > 80 ||
     t.target_text.length > 80 ||
     t.source_text.includes('\n') ||
     t.target_text.includes('\n');
+
+  // Synka lokal text när sparad text ändras (efter save eller extern uppdatering)
+  useEffect(() => {
+    setLocalText(t.target_text);
+  }, [t.target_text]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -34,7 +42,15 @@ export const TranslationRow = memo(function TranslationRow({
       el.style.height = 'auto';
       el.style.height = el.scrollHeight + 'px';
     }
-  }, [t.target_text, isLong]);
+  }, [localText, isLong]);
+
+  const isDirty = localText !== t.target_text;
+
+  async function handleClickSave() {
+    setSaving(true);
+    await onSave(t.id, t.target_text, localText);
+    setSaving(false);
+  }
 
   const hasAiFlag = aiFindings && aiFindings.length > 0;
   const worstSeverity = hasAiFlag
@@ -47,7 +63,6 @@ export const TranslationRow = memo(function TranslationRow({
 
   const className = [
     'entry',
-    isEdited ? 'edited' : '',
     isMissing ? 'missing' : '',
     t.reviewed ? 'reviewed' : '',
     hasAiFlag ? `ai-flagged ai-${worstSeverity}` : '',
@@ -75,37 +90,43 @@ export const TranslationRow = memo(function TranslationRow({
             🤖 {aiFindings!.length}
           </button>
         )}
-        <button className="history-btn" onClick={onShowHistory} title="Visa historik">
-          🕑
-        </button>
+        {hasHistory && (
+          <button className="history-btn" onClick={onShowHistory} title="Visa historik">
+            🕑
+          </button>
+        )}
       </div>
       <div className="en-col">
         <span className="col-label">EN</span>
         <div className="en-text">{t.source_text}</div>
       </div>
       <div className="sv-col">
-        <span className="col-label">
-          SV {isEdited && <span className="edited-indicator">ändrad</span>}
-        </span>
-        {isLong ? (
-          <textarea
-            ref={ref as React.RefObject<HTMLTextAreaElement>}
-            rows={Math.min(6, Math.max(2, (t.target_text || t.source_text).split('\n').length))}
-            defaultValue={t.target_text}
-            onInput={(e) =>
-              onEdit(t.id, t.key, (e.target as HTMLTextAreaElement).value)
-            }
-          />
-        ) : (
-          <input
-            ref={ref as React.RefObject<HTMLInputElement>}
-            type="text"
-            defaultValue={t.target_text}
-            onInput={(e) =>
-              onEdit(t.id, t.key, (e.target as HTMLInputElement).value)
-            }
-          />
-        )}
+        <span className="col-label">SV</span>
+        <div className="sv-input-row">
+          {isLong ? (
+            <textarea
+              ref={ref as React.RefObject<HTMLTextAreaElement>}
+              rows={Math.min(6, Math.max(2, (localText || t.source_text).split('\n').length))}
+              value={localText}
+              onChange={(e) => setLocalText(e.target.value)}
+            />
+          ) : (
+            <input
+              ref={ref as React.RefObject<HTMLInputElement>}
+              type="text"
+              value={localText}
+              onChange={(e) => setLocalText(e.target.value)}
+            />
+          )}
+          <button
+            className={`save-btn ${isDirty ? 'active' : ''}`}
+            disabled={!isDirty || saving}
+            onClick={handleClickSave}
+            title="Spara ändringar"
+          >
+            {saving ? '...' : '💾'}
+          </button>
+        </div>
       </div>
       {hasAiFlag && showFindings && (
         <div className="ai-findings">

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { TranslationRow } from './TranslationRow';
@@ -40,11 +40,10 @@ function unflatten(flat: FlatMap): Record<string, unknown> {
 interface Section {
   key: string;
   count: number;
-  editedCount: number;
   missingCount: number;
 }
 
-type Filter = 'all' | 'edited' | 'missing' | 'long' | 'unreviewed' | 'ai-flagged';
+type Filter = 'all' | 'missing' | 'long' | 'unreviewed' | 'ai-flagged';
 
 export function Editor() {
   const { id } = useParams<{ id: string }>();
@@ -54,17 +53,15 @@ export function Editor() {
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
 
-  // Redigeringsstate
-  const [editedKeys, setEditedKeys] = useState<Set<string>>(new Set());
-  const [pendingSaves, setPendingSaves] = useState<Map<string, string>>(new Map());
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Historik-spårning (vilka nycklar har minst en historik-post)
+  const [keysWithHistory, setKeysWithHistory] = useState<Set<string>>(new Set());
 
   // Filter & sökning
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [activeSection, setActiveSection] = useState<string | null>(null);
 
-  // Historik
+  // Historik-modal
   const [historyKey, setHistoryKey] = useState<string | null>(null);
   const [historyTranslationId, setHistoryTranslationId] = useState<string | null>(null);
 
@@ -89,6 +86,7 @@ export function Editor() {
     loadProject();
     loadTranslations();
     loadGlossary();
+    loadAiFindings();
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadProject() {
@@ -126,6 +124,27 @@ export function Editor() {
 
     setTranslations(all);
     setLoading(false);
+
+    // Ladda vilka nycklar som har historik
+    await loadKeysWithHistory(all.map((t) => t.id));
+  }
+
+  async function loadKeysWithHistory(translationIds: string[]) {
+    if (translationIds.length === 0) return;
+    const historyIds = new Set<string>();
+
+    for (let i = 0; i < translationIds.length; i += 500) {
+      const batch = translationIds.slice(i, i + 500);
+      const { data } = await supabase
+        .from('translation_history')
+        .select('translation_id')
+        .in('translation_id', batch);
+      for (const row of data ?? []) {
+        historyIds.add(row.translation_id);
+      }
+    }
+
+    setKeysWithHistory(historyIds);
   }
 
   async function loadGlossary() {
@@ -135,6 +154,34 @@ export function Editor() {
       .eq('project_id', id)
       .order('source_term');
     setGlossary(data ?? []);
+  }
+
+  async function loadAiFindings() {
+    const { data } = await supabase
+      .from('ai_findings')
+      .select('*')
+      .eq('project_id', id);
+
+    if (data && data.length > 0) {
+      const findings: AiFinding[] = data.map((row) => ({
+        key: row.key,
+        issue: row.issue,
+        suggestion: row.suggestion,
+        severity: row.severity,
+      }));
+      setAiFindings(findings);
+      setShowAiPanel(true);
+      setAiDone(true);
+
+      // Visa när senaste körningen gjordes
+      const latest = data.reduce((a, b) =>
+        a.created_at > b.created_at ? a : b
+      );
+      const d = new Date(latest.created_at);
+      const dateStr = d.toLocaleDateString('sv-SE') + ' ' +
+        d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+      setAiProgress(`📋 Senaste AI-granskning: ${dateStr} — ${data.length} problem hittade.`);
+    }
   }
 
   // ── Import av ordlista ──
@@ -344,71 +391,48 @@ export function Editor() {
     setImporting(false);
   }
 
-  // ── Redigering med debounced sparning ──
+  // ── Spara en översättning (explicit klick) ──
 
-  const handleEdit = useCallback(
-    (translationId: string, key: string, newText: string) => {
-      // Uppdatera lokalt state direkt
-      setTranslations((prev) =>
-        prev.map((t) => (t.id === translationId ? { ...t, target_text: newText } : t))
-      );
-      setEditedKeys((prev) => new Set(prev).add(key));
-
-      // Köa sparning
-      setPendingSaves((prev) => {
-        const next = new Map(prev);
-        next.set(translationId, newText);
-        return next;
-      });
-
-      // Debounce
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = setTimeout(() => flushSaves(), 800);
-    },
-    [] // eslint-disable-line react-hooks/exhaustive-deps
-  );
-
-  async function flushSaves() {
-    const saves = new Map(pendingSaves);
-    if (saves.size === 0) return;
-    setPendingSaves(new Map());
+  const handleSave = useCallback(async (translationId: string, oldText: string, newText: string) => {
+    if (oldText === newText) return;
 
     setSaveStatus('Sparar...');
 
-    for (const [translationId, newText] of saves) {
-      // Hämta gammal text för historik
-      const existing = translations.find((t) => t.id === translationId);
-      const oldText = existing?.target_text ?? '';
+    // Uppdatera översättningen
+    const { error: updateError } = await supabase
+      .from('translations')
+      .update({ target_text: newText })
+      .eq('id', translationId);
 
-      // Uppdatera översättningen
-      const { error: updateError } = await supabase
-        .from('translations')
-        .update({ target_text: newText })
-        .eq('id', translationId);
-
-      if (updateError) {
-        console.error('Sparfel:', updateError);
-        setSaveStatus('Fel vid sparning!');
-        return;
-      }
-
-      // Logga historik (bara om texten faktiskt ändrades)
-      if (oldText !== newText) {
-        await supabase.from('translation_history').insert({
-          translation_id: translationId,
-          old_text: oldText,
-          new_text: newText,
-          changed_by: 'anonymous', // TODO: koppla auth
-        });
-      }
+    if (updateError) {
+      console.error('Sparfel:', updateError);
+      setSaveStatus('Fel vid sparning!');
+      return;
     }
+
+    // Skapa historik-post
+    await supabase.from('translation_history').insert({
+      translation_id: translationId,
+      old_text: oldText,
+      new_text: newText,
+      changed_by: 'anonymous',
+      change_type: 'edit',
+    });
+
+    // Uppdatera lokalt state
+    setTranslations((prev) =>
+      prev.map((t) => (t.id === translationId ? { ...t, target_text: newText } : t))
+    );
+
+    // Markera att denna nyckel nu har historik
+    setKeysWithHistory((prev) => new Set(prev).add(translationId));
 
     const time = new Date().toLocaleTimeString('sv-SE', {
       hour: '2-digit',
       minute: '2-digit',
     });
     setSaveStatus(`Sparad ${time}`);
-  }
+  }, []);
 
   // ── Granskad-toggle ──
 
@@ -551,6 +575,27 @@ export function Editor() {
     setAiReviewing(false);
     setAiDone(true);
 
+    // Spara AI-resultaten till Supabase (ersätt föregående körning)
+    if (failedBatches < totalBatches) {
+      // Radera gamla findings
+      await supabase.from('ai_findings').delete().eq('project_id', id);
+
+      // Inserta nya i batchar
+      if (allFindings.length > 0) {
+        const rows = allFindings.map((f) => ({
+          project_id: id!,
+          key: f.key,
+          issue: f.issue,
+          suggestion: f.suggestion ?? null,
+          severity: f.severity,
+        }));
+        for (let i = 0; i < rows.length; i += 500) {
+          const batch = rows.slice(i, i + 500);
+          await supabase.from('ai_findings').insert(batch);
+        }
+      }
+    }
+
     // Markera oflaggade keys som granskade (bara om granskningen lyckades)
     if (failedBatches < totalBatches) {
       const flaggedKeys = new Set(allFindings.map((f) => f.key));
@@ -607,7 +652,6 @@ export function Editor() {
     return Object.entries(tree).map(([key, items]) => ({
       key,
       count: items.length,
-      editedCount: items.filter((t) => editedKeys.has(t.key)).length,
       missingCount: items.filter((t) => !t.target_text && t.source_text).length,
     }));
   })();
@@ -633,10 +677,7 @@ export function Editor() {
     }
 
     // Kategorifilter
-    if (filter === 'edited') {
-      const base = search ? items : translations;
-      items = base.filter((t) => editedKeys.has(t.key));
-    } else if (filter === 'missing') {
+    if (filter === 'missing') {
       const base = search ? items : translations;
       items = base.filter((t) => !t.target_text && t.source_text);
     } else if (filter === 'long') {
@@ -657,7 +698,6 @@ export function Editor() {
   // ── Stats ──
 
   const totalKeys = translations.length;
-  const editedCount = editedKeys.size;
   const missingCount = translations.filter((t) => !t.target_text && t.source_text).length;
   const reviewedCount = translations.filter((t) => t.reviewed).length;
 
@@ -696,13 +736,13 @@ export function Editor() {
         </div>
 
         <div className="filter-pills">
-          {(['all', 'unreviewed', 'edited', 'missing', 'long', ...(aiFindings.length > 0 ? ['ai-flagged'] : [])] as Filter[]).map((f) => (
+          {(['all', 'unreviewed', 'missing', 'long', ...(aiFindings.length > 0 ? ['ai-flagged'] : [])] as Filter[]).map((f) => (
             <button
               key={f}
               className={`pill ${filter === f ? 'active' : ''} ${f === 'ai-flagged' ? 'pill-ai' : ''}`}
               onClick={() => setFilter(f)}
             >
-              {f === 'all' ? 'Alla' : f === 'unreviewed' ? 'Ej granskade' : f === 'edited' ? 'Ändrade' : f === 'missing' ? 'Saknas' : f === 'long' ? 'Långa' : `🤖 AI (${aiFindings.length})`}
+              {f === 'all' ? 'Alla' : f === 'unreviewed' ? 'Ej granskade' : f === 'missing' ? 'Saknas' : f === 'long' ? 'Långa' : `🤖 AI (${aiFindings.length})`}
             </button>
           ))}
         </div>
@@ -710,9 +750,6 @@ export function Editor() {
         <div className="stats">
           <span className="stat-reviewed">
             <span className="stat-num">{reviewedCount}</span> / {totalKeys} granskade
-          </span>
-          <span className="stat-edited">
-            <span className="stat-num">{editedCount}</span> ändrade
           </span>
           <span className="stat-missing">
             <span className="stat-num">{missingCount}</span> saknas
@@ -783,7 +820,6 @@ export function Editor() {
               }}
             >
               <span>{sec.key}</span>
-              {sec.editedCount > 0 && <span className="badge badge-edited" />}
               {sec.missingCount > 0 && <span className="badge badge-missing" />}
               <span className="count">{sec.count}</span>
             </div>
@@ -848,9 +884,9 @@ export function Editor() {
               <TranslationRow
                 key={t.id}
                 translation={t}
-                isEdited={editedKeys.has(t.key)}
                 aiFindings={aiFindingsByKey.get(t.key)}
-                onEdit={handleEdit}
+                hasHistory={keysWithHistory.has(t.id)}
+                onSave={handleSave}
                 onToggleReviewed={handleToggleReviewed}
                 onShowHistory={() => {
                   setHistoryKey(t.key);

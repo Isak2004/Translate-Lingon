@@ -280,7 +280,6 @@ a:hover { text-decoration: underline; }
 .stats { display: flex; gap: 12px; font-size: 12px; color: var(--muted); white-space: nowrap; }
 .stat-num { font-weight: 600; }
 .stat-reviewed { color: var(--sage); }
-.stat-edited { color: var(--amber); }
 .stat-missing { color: var(--berry); }
 
 .action-btn {
@@ -369,7 +368,6 @@ a:hover { text-decoration: underline; }
 .sidebar-section.active .count { background: var(--berry); color: #fff; }
 
 .badge { display: inline-block; width: 7px; height: 7px; border-radius: 50%; }
-.badge-edited { background: var(--amber); }
 .badge-missing { background: var(--berry); }
 
 /* Content */
@@ -391,10 +389,6 @@ a:hover { text-decoration: underline; }
 .entry:hover {
   border-color: var(--line);
   box-shadow: var(--shadow-1);
-}
-.entry.edited {
-  background: var(--amber-tint);
-  border-color: color-mix(in srgb, var(--amber) 30%, transparent);
 }
 .entry.reviewed {
   opacity: 0.55;
@@ -448,15 +442,14 @@ a:hover { text-decoration: underline; }
 .history-btn {
   border: none;
   background: none;
-  font-size: 12px;
+  font-size: 16px;
   cursor: pointer;
-  opacity: 0.2;
-  padding: 2px 6px;
+  opacity: 0.6;
+  padding: 4px 8px;
   border-radius: var(--r-sm);
   transition: all .15s;
 }
-.entry:hover .history-btn { opacity: 0.5; }
-.history-btn:hover { opacity: 1 !important; background: var(--panel); }
+.history-btn:hover { opacity: 1; background: var(--panel); }
 
 .en-col, .sv-col { display: flex; flex-direction: column; gap: 2px; }
 .col-label {
@@ -474,7 +467,41 @@ a:hover { text-decoration: underline; }
   white-space: pre-wrap;
   word-break: break-word;
 }
-.edited-indicator { color: var(--amber); font-weight: 600; margin-left: 4px; }
+/* Spara-knapp bredvid textfältet */
+.sv-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.sv-input-row textarea,
+.sv-input-row input { flex: 1; }
+.save-btn {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--faint);
+  font-size: 16px;
+  cursor: not-allowed;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s;
+  opacity: 0.4;
+}
+.save-btn.active {
+  cursor: pointer;
+  opacity: 1;
+  background: var(--sage);
+  border-color: var(--sage);
+  color: #fff;
+}
+.save-btn.active:hover {
+  background: var(--sage-hover);
+  border-color: var(--sage-hover);
+}
 
 .sv-col textarea, .sv-col input {
   width: 100%;

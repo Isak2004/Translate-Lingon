@@ -19,12 +19,22 @@ export interface Translation {
   updated_at: string;
 }
 
+export type ChangeType =
+  | 'edit'
+  | 'created'
+  | 'source_updated'
+  | 'deleted'
+  | 'reviewed'
+  | 'unreviewed'
+  | 'ai_reviewed';
+
 export interface HistoryEntry {
   id: string;
   translation_id: string;
   old_text: string | null;
   new_text: string;
   changed_by: string;
+  change_type: ChangeType;
   created_at: string;
 }
 
