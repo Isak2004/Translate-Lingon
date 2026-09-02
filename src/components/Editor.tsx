@@ -578,7 +578,8 @@ export function Editor() {
     // Spara AI-resultaten till Supabase (ersätt föregående körning)
     if (failedBatches < totalBatches) {
       // Radera gamla findings
-      await supabase.from('ai_findings').delete().eq('project_id', id);
+      const { error: deleteErr } = await supabase.from('ai_findings').delete().eq('project_id', id);
+      if (deleteErr) console.error('Kunde inte radera gamla AI-findings:', deleteErr);
 
       // Inserta nya i batchar
       if (allFindings.length > 0) {
@@ -591,7 +592,11 @@ export function Editor() {
         }));
         for (let i = 0; i < rows.length; i += 500) {
           const batch = rows.slice(i, i + 500);
-          await supabase.from('ai_findings').insert(batch);
+          const { error: insertErr } = await supabase.from('ai_findings').insert(batch);
+          if (insertErr) {
+            console.error('Kunde inte spara AI-findings:', insertErr);
+            setSaveStatus('⚠️ AI-resultat kunde inte sparas till databasen');
+          }
         }
       }
     }
