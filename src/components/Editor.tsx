@@ -71,6 +71,9 @@ export function Editor() {
   const [aiProgress, setAiProgress] = useState('');
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [aiDone, setAiDone] = useState(false);
+  const [aiSummary, setAiSummary] = useState<
+    { errors: number; warnings: number; info: number; skipped: number } | null
+  >(null);
 
   // Ordlista
   const [glossary, setGlossary] = useState<GlossaryTerm[]>([]);
@@ -557,53 +560,96 @@ export function Editor() {
       }
     }
 
-    setAiFindings(allFindings);
+    // ── Städa AI-resultatet innan det sparas ──
+    // Modellen (gpt-4o-mini) glömmer ibland ett fält. En rad utan key eller
+    // issue kan inte visas och måste bort; en trasig/saknad severity defaultar
+    // vi till 'info'. Poängen: EN enda trasig rad får inte fälla hela insert:en
+    // (key/issue/severity är NOT NULL i databasen) och därmed radera allt.
+    const VALID_SEVERITY = ['error', 'warning', 'info'];
+    const cleanFindings: AiFinding[] = [];
+    let skippedFindings = 0;
+    for (const f of allFindings) {
+      const key = typeof f.key === 'string' ? f.key.trim() : '';
+      const issue = typeof f.issue === 'string' ? f.issue.trim() : '';
+      if (!key || !issue) {
+        skippedFindings++;
+        console.warn('AI-finding saknar key/issue — hoppas över:', f); // debug
+        continue;
+      }
+      cleanFindings.push({
+        key,
+        issue,
+        suggestion: typeof f.suggestion === 'string' ? f.suggestion : null,
+        severity: (VALID_SEVERITY.includes(f.severity)
+          ? f.severity
+          : 'info') as AiFinding['severity'],
+      });
+    }
+
+    setAiFindings(cleanFindings);
 
     if (failedBatches === totalBatches) {
       setAiProgress(`❌ Granskningen misslyckades. ${lastError}`);
     } else if (failedBatches > 0) {
       setAiProgress(
-        `⚠️ ${failedBatches} av ${totalBatches} batchar misslyckades. ${allFindings.length} problem hittade.`
+        `⚠️ ${failedBatches} av ${totalBatches} batchar misslyckades. ${cleanFindings.length} problem hittade.`
       );
     } else {
       setAiProgress(
-        allFindings.length > 0
-          ? `✅ Klar! ${allFindings.length} problem hittade.`
+        cleanFindings.length > 0
+          ? `✅ Klar! ${cleanFindings.length} problem hittade.`
           : '✅ Klar! Inga problem hittades.'
       );
     }
     setAiReviewing(false);
     setAiDone(true);
 
-    // Spara AI-resultaten till Supabase (ersätt föregående körning)
+    // Spara AI-resultaten till Supabase (ersätt föregående körning).
+    // Vi raderar INTE de gamla raderna förrän de nya är sparade — annars kan
+    // ett misslyckat insert lämna projektet helt utan resultat.
     if (failedBatches < totalBatches) {
-      // Radera gamla findings
-      const { error: deleteErr } = await supabase.from('ai_findings').delete().eq('project_id', id);
-      if (deleteErr) console.error('Kunde inte radera gamla AI-findings:', deleteErr);
+      // Fånga befintliga rader så vi kan radera dem EFTER ett lyckat insert
+      const { data: oldRows } = await supabase
+        .from('ai_findings')
+        .select('id')
+        .eq('project_id', id);
+      const oldIds = (oldRows ?? []).map((r) => r.id);
 
       // Inserta nya i batchar
-      if (allFindings.length > 0) {
-        const rows = allFindings.map((f) => ({
+      let insertOk = true;
+      if (cleanFindings.length > 0) {
+        const rows = cleanFindings.map((f) => ({
           project_id: id!,
           key: f.key,
           issue: f.issue,
-          suggestion: f.suggestion ?? null,
+          suggestion: f.suggestion,
           severity: f.severity,
         }));
         for (let i = 0; i < rows.length; i += 500) {
           const batch = rows.slice(i, i + 500);
           const { error: insertErr } = await supabase.from('ai_findings').insert(batch);
           if (insertErr) {
-            console.error('Kunde inte spara AI-findings:', insertErr);
+            insertOk = false;
+            console.error('Kunde inte spara AI-findings:', insertErr); // debug
             setSaveStatus('⚠️ AI-resultat kunde inte sparas till databasen');
+            break;
           }
         }
+      }
+
+      // Radera de gamla bara om de nya kom in (eller om det inte fanns några nya)
+      if (insertOk && oldIds.length > 0) {
+        const { error: deleteErr } = await supabase
+          .from('ai_findings')
+          .delete()
+          .in('id', oldIds);
+        if (deleteErr) console.error('Kunde inte radera gamla AI-findings:', deleteErr); // debug
       }
     }
 
     // Markera oflaggade keys som granskade (bara om granskningen lyckades)
     if (failedBatches < totalBatches) {
-      const flaggedKeys = new Set(allFindings.map((f) => f.key));
+      const flaggedKeys = new Set(cleanFindings.map((f) => f.key));
       const toMarkReviewed = toReview.filter(
         (t) => !flaggedKeys.has(t.key) && !t.reviewed
       );
@@ -631,6 +677,16 @@ export function Editor() {
           prev + ` ${toMarkReviewed.length} keys markerade som granskade.`
         );
       }
+    }
+
+    // Visa en sammanfattningsruta när granskningen lyckats (helt eller delvis)
+    if (failedBatches < totalBatches) {
+      setAiSummary({
+        errors: cleanFindings.filter((f) => f.severity === 'error').length,
+        warnings: cleanFindings.filter((f) => f.severity === 'warning').length,
+        info: cleanFindings.filter((f) => f.severity === 'info').length,
+        skipped: skippedFindings,
+      });
     }
   }
 
@@ -945,6 +1001,46 @@ export function Editor() {
                 onClick={doImport}
               >
                 Importera
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI-sammanfattning */}
+      {aiSummary && (
+        <div className="modal-backdrop" onClick={() => setAiSummary(null)}>
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 420 }}
+          >
+            <div className="modal-header">
+              <h2>AI-granskning klar!</h2>
+              <button className="modal-close" onClick={() => setAiSummary(null)}>
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <p style={{ margin: '0 0 8px', fontWeight: 600 }}>Resultat:</p>
+              <ul style={{ margin: '0 0 16px', paddingLeft: 20, lineHeight: 1.7 }}>
+                <li>🔴 {aiSummary.errors} fel</li>
+                <li>🟡 {aiSummary.warnings} varningar</li>
+                <li>🔵 {aiSummary.info} tips</li>
+              </ul>
+              {aiSummary.skipped > 0 && (
+                <p style={{ margin: 0, opacity: 0.8 }}>
+                  Obs: AI kunde inte analysera {aiSummary.skipped}{' '}
+                  {aiSummary.skipped === 1 ? 'nyckel' : 'nycklar'}. De har
+                  markerats som granskade.
+                </p>
+              )}
+              <button
+                className="action-btn"
+                style={{ marginTop: 20, width: '100%', padding: '10px' }}
+                onClick={() => setAiSummary(null)}
+              >
+                OK
               </button>
             </div>
           </div>
