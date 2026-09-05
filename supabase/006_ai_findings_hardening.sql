@@ -11,7 +11,10 @@ ALTER TABLE ai_findings ALTER COLUMN severity SET DEFAULT 'info';
 UPDATE ai_findings SET severity = 'info'
 WHERE severity NOT IN ('error', 'warning', 'info');
 
--- Tillåt bara de tre giltiga värdena
+-- Tillåt bara de tre giltiga värdena.
+-- DROP ... IF EXISTS gör hela filen idempotent — kan köras om utan fel även
+-- om constraint:en redan finns (ADD CONSTRAINT ensamt skulle annars fela).
+ALTER TABLE ai_findings DROP CONSTRAINT IF EXISTS ai_findings_severity_check;
 ALTER TABLE ai_findings
   ADD CONSTRAINT ai_findings_severity_check
   CHECK (severity IN ('error', 'warning', 'info'));
