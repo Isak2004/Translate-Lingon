@@ -43,7 +43,7 @@ interface Section {
   missingCount: number;
 }
 
-type Filter = 'all' | 'missing' | 'long' | 'unreviewed' | 'ai-flagged';
+type Filter = 'all' | 'long' | 'unreviewed' | 'ai-flagged';
 
 export function Editor() {
   const { id } = useParams<{ id: string }>();
@@ -738,10 +738,7 @@ export function Editor() {
     }
 
     // Kategorifilter
-    if (filter === 'missing') {
-      const base = search ? items : translations;
-      items = base.filter((t) => !t.target_text && t.source_text);
-    } else if (filter === 'long') {
+    if (filter === 'long') {
       items = items.filter(
         (t) => t.source_text.length > 80 || t.target_text.length > 80
       );
@@ -797,13 +794,13 @@ export function Editor() {
         </div>
 
         <div className="filter-pills">
-          {(['all', 'unreviewed', 'missing', 'long', ...(aiFindings.length > 0 ? ['ai-flagged'] : [])] as Filter[]).map((f) => (
+          {(['all', 'unreviewed', 'long', ...(aiFindings.length > 0 ? ['ai-flagged'] : [])] as Filter[]).map((f) => (
             <button
               key={f}
               className={`pill ${filter === f ? 'active' : ''} ${f === 'ai-flagged' ? 'pill-ai' : ''}`}
               onClick={() => setFilter(f)}
             >
-              {f === 'all' ? 'Alla' : f === 'unreviewed' ? 'Ej granskade' : f === 'missing' ? 'Saknas' : f === 'long' ? 'Långa' : `🤖 AI (${aiFindings.length})`}
+              {f === 'all' ? 'Alla' : f === 'unreviewed' ? 'Ej granskade' : f === 'long' ? 'Långa' : `🤖 AI (${aiFindings.length})`}
             </button>
           ))}
         </div>
