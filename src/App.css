@@ -781,6 +781,53 @@ a:hover { text-decoration: underline; }
 }
 .ai-suggestion-label { font-weight: 600; font-style: normal; }
 
+/* ── Category filter pills ── */
+.pill-approved {
+  background: var(--sage-tint);
+  color: var(--sage);
+  border-color: color-mix(in srgb, var(--sage) 40%, transparent);
+}
+.pill-approved:hover { background: color-mix(in srgb, var(--sage) 15%, transparent); }
+.pill.active.pill-approved { background: var(--sage); color: #fff; border-color: var(--sage); }
+
+.pill-rejected {
+  background: color-mix(in srgb, var(--berry) 10%, transparent);
+  color: var(--berry);
+  border-color: color-mix(in srgb, var(--berry) 40%, transparent);
+}
+.pill-rejected:hover { background: color-mix(in srgb, var(--berry) 15%, transparent); }
+.pill.active.pill-rejected { background: var(--berry); color: #fff; border-color: var(--berry); }
+
+.pill-manually-approved {
+  background: var(--amber-tint);
+  color: var(--amber);
+  border-color: color-mix(in srgb, var(--amber) 40%, transparent);
+}
+.pill-manually-approved:hover { background: color-mix(in srgb, var(--amber) 15%, transparent); }
+.pill.active.pill-manually-approved { background: var(--amber); color: #fff; border-color: var(--amber); }
+
+/* ── Category badge on entry ── */
+.category-badge {
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* ── Manually approved entry ── */
+.entry.manually-approved {
+  border-left: 3px solid var(--sage);
+}
+
+/* ── Glossary badge in header ── */
+.glossary-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--amber);
+  background: var(--amber-tint);
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+
 /* ── Responsive ── */
 @media (max-width: 900px) {
   .sidebar { display: none; }

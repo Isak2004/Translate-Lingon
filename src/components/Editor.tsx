@@ -1,10 +1,10 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { TranslationRow } from './TranslationRow';
 import { ThemeToggle } from './ThemeToggle';
 import { History } from './History';
-import type { Project, Translation, FlatMap, AiFinding, GlossaryTerm } from '../types';
+import type { Project, Translation, FlatMap, AiFinding, GlossaryTerm, ReviewCategory } from '../types';
 
 // ── JSON plattning ──
 
@@ -35,15 +35,27 @@ function unflatten(flat: FlatMap): Record<string, unknown> {
   return result;
 }
 
-// ── Typer för sektioner ──
+// ── Kategori-helper ──
 
-interface Section {
-  key: string;
-  count: number;
-  missingCount: number;
+function getCategory(
+  t: Translation,
+  hasFinding: boolean,
+): ReviewCategory {
+  const isMissing = !t.target_text && !!t.source_text;
+  if (isMissing) return 'ai-rejected';
+  if (hasFinding) {
+    return t.target_text && t.manually_approved_text === t.target_text
+      ? 'ai-rejected-manually-approved'
+      : 'ai-rejected';
+  }
+  return 'ai-approved';
 }
 
-type Filter = 'all' | 'long' | 'unreviewed' | 'ai-flagged';
+// ── Typer ──
+
+interface Section { key: string; count: number; }
+
+type Filter = 'all' | 'ai-approved' | 'ai-rejected' | 'ai-rejected-manually-approved';
 
 export function Editor() {
   const { id } = useParams<{ id: string }>();
@@ -53,33 +65,32 @@ export function Editor() {
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
 
-  // Historik-spårning (vilka nycklar har minst en historik-post)
   const [keysWithHistory, setKeysWithHistory] = useState<Set<string>>(new Set());
 
-  // Filter & sökning
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [activeSection, setActiveSection] = useState<string | null>(null);
 
-  // Historik-modal
   const [historyKey, setHistoryKey] = useState<string | null>(null);
   const [historyTranslationId, setHistoryTranslationId] = useState<string | null>(null);
 
-  // AI-granskning
   const [aiFindings, setAiFindings] = useState<AiFinding[]>([]);
   const [aiReviewing, setAiReviewing] = useState(false);
   const [aiProgress, setAiProgress] = useState('');
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [aiDone, setAiDone] = useState(false);
-  const [aiSummary, setAiSummary] = useState<
-    { errors: number; warnings: number; info: number; skipped: number } | null
-  >(null);
+  const [aiSummary, setAiSummary] = useState<{
+    approved: number; rejected: number; manuallyApproved: number;
+    total: number; findings: number;
+  } | null>(null);
 
-  // Ordlista
   const [glossary, setGlossary] = useState<GlossaryTerm[]>([]);
-  const [importingGlossary, setImportingGlossary] = useState(false);
 
-  // Statusindicator
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [enFile, setEnFile] = useState<File | null>(null);
+  const [svFile, setSvFile] = useState<File | null>(null);
+  const [glossaryFile, setGlossaryFile] = useState<File | null>(null);
+
   const [saveStatus, setSaveStatus] = useState('');
 
   // ── Ladda projekt och översättningar ──
@@ -102,7 +113,6 @@ export function Editor() {
   }
 
   async function loadTranslations() {
-    // Supabase returnerar max 1000 rader per anrop — hämta alla med paginering
     let all: Translation[] = [];
     let from = 0;
     const pageSize = 1000;
@@ -127,8 +137,6 @@ export function Editor() {
 
     setTranslations(all);
     setLoading(false);
-
-    // Ladda vilka nycklar som har historik
     await loadKeysWithHistory(all.map((t) => t.id));
   }
 
@@ -176,235 +184,229 @@ export function Editor() {
       setShowAiPanel(true);
       setAiDone(true);
 
-      // Visa när senaste körningen gjordes
       const latest = data.reduce((a, b) =>
         a.created_at > b.created_at ? a : b
       );
       const d = new Date(latest.created_at);
       const dateStr = d.toLocaleDateString('sv-SE') + ' ' +
         d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
-      setAiProgress(`📋 Senaste AI-granskning: ${dateStr} — ${data.length} problem hittade.`);
+      setAiProgress(`Senaste AI-granskning: ${dateStr} — ${data.length} problem hittade.`);
     }
   }
 
   // ── Import av ordlista ──
 
-  async function importGlossary(file: File) {
-    setImportingGlossary(true);
-    try {
-      const raw = JSON.parse(await file.text());
-      const terms = raw.terms ?? raw; // stöd både { terms: [...] } och ren array
+  async function importGlossaryFromFile(file: File) {
+    const raw = JSON.parse(await file.text());
+    const terms = raw.terms ?? raw;
 
-      if (!Array.isArray(terms)) {
-        throw new Error('Filen innehåller inte en terms-array');
-      }
+    if (!Array.isArray(terms)) {
+      throw new Error('Ordlistefilen innehåller inte en terms-array');
+    }
 
-      // Hämta befintliga termer
-      const existingByTerm = new Map<string, GlossaryTerm>();
-      for (const g of glossary) {
-        existingByTerm.set(g.source_term, g);
-      }
+    const existingByTerm = new Map<string, GlossaryTerm>();
+    for (const g of glossary) {
+      existingByTerm.set(g.source_term, g);
+    }
 
-      const toInsert: {
-        project_id: string;
-        source_term: string;
-        definition: string;
-        approved_translation: string | null;
-        notes: string;
-        do_not_translate: boolean;
-      }[] = [];
-      const toUpdate: {
-        id: string;
-        definition: string;
-        approved_translation: string | null;
-        notes: string;
-        do_not_translate: boolean;
-      }[] = [];
+    const toInsert: {
+      project_id: string; source_term: string; definition: string;
+      approved_translation: string | null; notes: string; do_not_translate: boolean;
+    }[] = [];
+    const toUpdate: {
+      id: string; definition: string; approved_translation: string | null;
+      notes: string; do_not_translate: boolean;
+    }[] = [];
 
-      for (const term of terms) {
-        const svTranslation = term.approved_translations?.sv ?? null;
-        const existing = existingByTerm.get(term.source_term);
+    for (const term of terms) {
+      const svTranslation = term.approved_translations?.sv ?? null;
+      const existing = existingByTerm.get(term.source_term);
 
-        if (!existing) {
-          toInsert.push({
-            project_id: id!,
-            source_term: term.source_term,
+      if (!existing) {
+        toInsert.push({
+          project_id: id!,
+          source_term: term.source_term,
+          definition: term.definition ?? '',
+          approved_translation: svTranslation,
+          notes: term.notes ?? '',
+          do_not_translate: term.do_not_translate ?? false,
+        });
+      } else {
+        const changed =
+          existing.definition !== (term.definition ?? '') ||
+          existing.approved_translation !== svTranslation ||
+          existing.notes !== (term.notes ?? '') ||
+          existing.do_not_translate !== (term.do_not_translate ?? false);
+
+        if (changed) {
+          toUpdate.push({
+            id: existing.id,
             definition: term.definition ?? '',
             approved_translation: svTranslation,
             notes: term.notes ?? '',
             do_not_translate: term.do_not_translate ?? false,
           });
-        } else {
-          // Uppdatera om något ändrats
-          const changed =
-            existing.definition !== (term.definition ?? '') ||
-            existing.approved_translation !== svTranslation ||
-            existing.notes !== (term.notes ?? '') ||
-            existing.do_not_translate !== (term.do_not_translate ?? false);
-
-          if (changed) {
-            toUpdate.push({
-              id: existing.id,
-              definition: term.definition ?? '',
-              approved_translation: svTranslation,
-              notes: term.notes ?? '',
-              do_not_translate: term.do_not_translate ?? false,
-            });
-          }
         }
       }
-
-      // Infoga nya
-      if (toInsert.length > 0) {
-        const { error } = await supabase.from('glossary_terms').insert(toInsert);
-        if (error) throw error;
-      }
-
-      // Uppdatera ändrade
-      for (const item of toUpdate) {
-        const { error } = await supabase
-          .from('glossary_terms')
-          .update({
-            definition: item.definition,
-            approved_translation: item.approved_translation,
-            notes: item.notes,
-            do_not_translate: item.do_not_translate,
-          })
-          .eq('id', item.id);
-        if (error) throw error;
-      }
-
-      await loadGlossary();
-
-      const stats: string[] = [];
-      if (toInsert.length > 0) stats.push(`${toInsert.length} nya`);
-      if (toUpdate.length > 0) stats.push(`${toUpdate.length} uppdaterade`);
-      const unchanged = terms.length - toInsert.length - toUpdate.length;
-      if (unchanged > 0) stats.push(`${unchanged} oförändrade`);
-      setSaveStatus(`Ordlista: ${stats.join(', ')}`);
-    } catch (err) {
-      alert('Ordlisteimport misslyckades: ' + (err as Error).message);
     }
-    setImportingGlossary(false);
+
+    if (toInsert.length > 0) {
+      const { error } = await supabase.from('glossary_terms').insert(toInsert);
+      if (error) throw error;
+    }
+
+    for (const item of toUpdate) {
+      const { error } = await supabase
+        .from('glossary_terms')
+        .update({
+          definition: item.definition,
+          approved_translation: item.approved_translation,
+          notes: item.notes,
+          do_not_translate: item.do_not_translate,
+        })
+        .eq('id', item.id);
+      if (error) throw error;
+    }
+
+    await loadGlossary();
+
+    return { inserted: toInsert.length, updated: toUpdate.length, total: terms.length };
   }
 
-  // ── Import av JSON-filer ──
-
-  const [showImportModal, setShowImportModal] = useState(false);
-  const [enFile, setEnFile] = useState<File | null>(null);
-  const [svFile, setSvFile] = useState<File | null>(null);
+  // ── Import (unified: en.json + sv.json + valfri ordlista) ──
 
   function handleImport() {
     setEnFile(null);
     setSvFile(null);
+    setGlossaryFile(null);
     setShowImportModal(true);
   }
 
   async function doImport() {
     if (!enFile || !svFile) return;
     setShowImportModal(false);
-    await importFiles(enFile, svFile);
-  }
-
-  async function importFiles(enFile: File, svFile: File) {
     setImporting(true);
+
     try {
-      const enRaw = JSON.parse(await enFile.text());
-      const svRaw = JSON.parse(await svFile.text());
-      const enFlat = flatten(enRaw);
-      const svFlat = flatten(svRaw);
-      const allKeys = [...new Set([...Object.keys(enFlat), ...Object.keys(svFlat)])].sort();
+      await importFiles(enFile, svFile);
 
-      // Hämta befintliga nycklar från databasen
-      const existingByKey = new Map<string, Translation>();
-      for (const t of translations) {
-        existingByKey.set(t.key, t);
+      if (glossaryFile) {
+        const gStats = await importGlossaryFromFile(glossaryFile);
+        const parts: string[] = [];
+        if (gStats.inserted > 0) parts.push(`${gStats.inserted} nya`);
+        if (gStats.updated > 0) parts.push(`${gStats.updated} uppdaterade`);
+        const unchanged = gStats.total - gStats.inserted - gStats.updated;
+        if (unchanged > 0) parts.push(`${unchanged} oförändrade`);
+        setSaveStatus((prev) => prev + ` | Ordlista: ${parts.join(', ')}`);
       }
-
-      const toInsert: { project_id: string; key: string; source_text: string; target_text: string }[] = [];
-      const toUpdate: { id: string; source_text: string }[] = [];
-
-      for (const key of allKeys) {
-        const existing = existingByKey.get(key);
-        const newSourceText = enFlat[key] ?? '';
-        const newTargetText = svFlat[key] ?? '';
-
-        if (!existing) {
-          // Ny nyckel → lägg till
-          toInsert.push({
-            project_id: id!,
-            key,
-            source_text: newSourceText,
-            target_text: newTargetText,
-          });
-        } else if (existing.source_text !== newSourceText) {
-          // Engelska texten har ändrats → uppdatera source + markera ogranskad
-          toUpdate.push({
-            id: existing.id,
-            source_text: newSourceText,
-          });
-        }
-        // Annars: ingen ändring → ignorera
-      }
-
-      // Infoga nya nycklar i batchar
-      for (let i = 0; i < toInsert.length; i += 500) {
-        const batch = toInsert.slice(i, i + 500);
-        const { error } = await supabase.from('translations').insert(batch);
-        if (error) throw error;
-      }
-
-      // Uppdatera ändrade engelska texter + sätt reviewed = false
-      for (const item of toUpdate) {
-        const { error } = await supabase
-          .from('translations')
-          .update({ source_text: item.source_text, reviewed: false })
-          .eq('id', item.id);
-        if (error) throw error;
-      }
-
-      // Ta bort nycklar som inte längre finns i JSON-filerna
-      const importedKeySet = new Set(allKeys);
-      const toDelete = translations.filter((t) => !importedKeySet.has(t.key));
-
-      if (toDelete.length > 0) {
-        const deleteIds = toDelete.map((t) => t.id);
-        for (let i = 0; i < deleteIds.length; i += 500) {
-          const batch = deleteIds.slice(i, i + 500);
-          const { error } = await supabase
-            .from('translations')
-            .delete()
-            .in('id', batch);
-          if (error) throw error;
-        }
-      }
-
-      await loadTranslations();
-
-      const stats: string[] = [];
-      if (toInsert.length > 0) stats.push(`${toInsert.length} nya`);
-      if (toUpdate.length > 0) stats.push(`${toUpdate.length} uppdaterade`);
-      if (toDelete.length > 0) stats.push(`${toDelete.length} borttagna`);
-      const ignored = allKeys.length - toInsert.length - toUpdate.length;
-      if (ignored > 0) stats.push(`${ignored} oförändrade`);
-      setSaveStatus(`Import: ${stats.join(', ')}`);
     } catch (err) {
       alert('Import misslyckades: ' + (err as Error).message);
     }
+
     setImporting(false);
   }
 
-  // ── Spara en översättning (explicit klick) ──
+  async function importFiles(enFile: File, svFile: File) {
+    const enRaw = JSON.parse(await enFile.text());
+    const svRaw = JSON.parse(await svFile.text());
+    const enFlat = flatten(enRaw);
+    const svFlat = flatten(svRaw);
+    const allKeys = [...new Set([...Object.keys(enFlat), ...Object.keys(svFlat)])].sort();
+
+    const existingByKey = new Map<string, Translation>();
+    for (const t of translations) {
+      existingByKey.set(t.key, t);
+    }
+
+    const toInsert: {
+      project_id: string; key: string; source_text: string;
+      target_text: string; imported_target_text: string;
+    }[] = [];
+    const toUpdate: { id: string; fields: Record<string, unknown> }[] = [];
+
+    for (const key of allKeys) {
+      const existing = existingByKey.get(key);
+      const newSourceText = enFlat[key] ?? '';
+      const newTargetText = svFlat[key] ?? '';
+
+      if (!existing) {
+        toInsert.push({
+          project_id: id!,
+          key,
+          source_text: newSourceText,
+          target_text: newTargetText,
+          imported_target_text: newTargetText,
+        });
+      } else {
+        const fields: Record<string, unknown> = {
+          imported_target_text: newTargetText,
+        };
+        if (existing.source_text !== newSourceText) {
+          fields.source_text = newSourceText;
+        }
+        toUpdate.push({ id: existing.id, fields });
+      }
+    }
+
+    // Infoga nya nycklar
+    for (let i = 0; i < toInsert.length; i += 500) {
+      const batch = toInsert.slice(i, i + 500);
+      const { error } = await supabase.from('translations').insert(batch);
+      if (error) throw error;
+    }
+
+    // Uppdatera befintliga (imported_target_text + ev. source_text)
+    for (let i = 0; i < toUpdate.length; i += 50) {
+      const batch = toUpdate.slice(i, i + 50);
+      await Promise.all(
+        batch.map(async (item) => {
+          const { error } = await supabase
+            .from('translations')
+            .update(item.fields)
+            .eq('id', item.id);
+          if (error) throw error;
+        })
+      );
+    }
+
+    // Ta bort nycklar som inte längre finns i filerna
+    const importedKeySet = new Set(allKeys);
+    const toDelete = translations.filter((t) => !importedKeySet.has(t.key));
+
+    if (toDelete.length > 0) {
+      const deleteIds = toDelete.map((t) => t.id);
+      for (let i = 0; i < deleteIds.length; i += 500) {
+        const batch = deleteIds.slice(i, i + 500);
+        const { error } = await supabase
+          .from('translations')
+          .delete()
+          .in('id', batch);
+        if (error) throw error;
+      }
+    }
+
+    await loadTranslations();
+
+    const sourceUpdated = toUpdate.filter((u) => u.fields.source_text !== undefined).length;
+    const stats: string[] = [];
+    if (toInsert.length > 0) stats.push(`${toInsert.length} nya`);
+    if (sourceUpdated > 0) stats.push(`${sourceUpdated} uppdaterade`);
+    if (toDelete.length > 0) stats.push(`${toDelete.length} borttagna`);
+    const unchanged = allKeys.length - toInsert.length - sourceUpdated;
+    if (unchanged > 0) stats.push(`${unchanged} oförändrade`);
+    setSaveStatus(`Import: ${stats.join(', ')}`);
+  }
+
+  // ── Spara en översättning (= manuellt godkänd) ──
 
   const handleSave = useCallback(async (translationId: string, oldText: string, newText: string) => {
     if (oldText === newText) return;
 
     setSaveStatus('Sparar...');
 
-    // Uppdatera översättningen
     const { error: updateError } = await supabase
       .from('translations')
-      .update({ target_text: newText })
+      .update({ target_text: newText, manually_approved_text: newText })
       .eq('id', translationId);
 
     if (updateError) {
@@ -413,7 +415,6 @@ export function Editor() {
       return;
     }
 
-    // Skapa historik-post
     await supabase.from('translation_history').insert({
       translation_id: translationId,
       old_text: oldText,
@@ -422,12 +423,14 @@ export function Editor() {
       change_type: 'edit',
     });
 
-    // Uppdatera lokalt state
     setTranslations((prev) =>
-      prev.map((t) => (t.id === translationId ? { ...t, target_text: newText } : t))
+      prev.map((t) =>
+        t.id === translationId
+          ? { ...t, target_text: newText, manually_approved_text: newText }
+          : t
+      )
     );
 
-    // Markera att denna nyckel nu har historik
     setKeysWithHistory((prev) => new Set(prev).add(translationId));
 
     const time = new Date().toLocaleTimeString('sv-SE', {
@@ -437,48 +440,76 @@ export function Editor() {
     setSaveStatus(`Sparad ${time}`);
   }, []);
 
-  // ── Granskad-toggle ──
+  // ── Manuellt godkännande (toggle) ──
 
-  const handleToggleReviewed = useCallback(async (translationId: string) => {
-    const t = translations.find((tr) => tr.id === translationId);
-    if (!t) return;
+  const handleToggleApproved = useCallback(async (translationId: string) => {
+    let newApprovedText: string | null = null;
+    let prevApprovedText: string | null = null;
+    let didChange = false;
 
-    const newValue = !t.reviewed;
+    setTranslations((prev) => {
+      const t = prev.find((tr) => tr.id === translationId);
+      if (!t || !t.target_text) return prev;
 
-    // Uppdatera lokalt direkt
-    setTranslations((prev) =>
-      prev.map((tr) => (tr.id === translationId ? { ...tr, reviewed: newValue } : tr))
-    );
+      prevApprovedText = t.manually_approved_text;
+      const isApproved = t.manually_approved_text === t.target_text;
+      newApprovedText = isApproved ? null : t.target_text;
+      didChange = true;
 
-    // Spara till Supabase
+      return prev.map((tr) =>
+        tr.id === translationId ? { ...tr, manually_approved_text: newApprovedText } : tr
+      );
+    });
+
+    if (!didChange) return;
+
     const { error } = await supabase
       .from('translations')
-      .update({ reviewed: newValue })
+      .update({ manually_approved_text: newApprovedText })
       .eq('id', translationId);
 
     if (error) {
-      console.error('Kunde inte uppdatera granskad-status:', error);
-      // Ångra lokalt
+      console.error('Kunde inte uppdatera godkännande:', error);
       setTranslations((prev) =>
-        prev.map((tr) => (tr.id === translationId ? { ...tr, reviewed: !newValue } : tr))
+        prev.map((tr) =>
+          tr.id === translationId ? { ...tr, manually_approved_text: prevApprovedText } : tr
+        )
       );
     }
-  }, [translations]);
+  }, []);
 
-  // ── Export till JSON ──
+  // ── Export av ändrade nycklar ──
 
-  function handleExport() {
+  function handleExportChanged() {
     const flat: FlatMap = {};
+    let emptyCount = 0;
+
     for (const t of translations) {
+      if (t.imported_target_text === null) continue;
+      if (t.target_text === t.imported_target_text) continue;
+      if (!t.target_text) {
+        emptyCount++;
+        continue;
+      }
       flat[t.key] = t.target_text;
     }
+
+    if (emptyCount > 0) {
+      alert(`Varning: ${emptyCount} ändrade nycklar hoppades över för att de har tom text.`);
+    }
+
+    if (Object.keys(flat).length === 0) {
+      alert('Inga ändrade texter att exportera.');
+      return;
+    }
+
     const nested = unflatten(flat);
     const json = JSON.stringify(nested, null, 2) + '\n';
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${project?.target_language ?? 'sv'}.json`;
+    a.download = `${project?.target_language ?? 'sv'}-changes.json`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -492,10 +523,8 @@ export function Editor() {
     setShowAiPanel(true);
     setAiDone(false);
 
-    // Filtrera bort tomma — inget att granska
     const toReview = translations.filter((t) => t.target_text && t.source_text);
 
-    // Skicka i batchar om ~100 nycklar
     const BATCH_SIZE = 100;
     const allFindings: AiFinding[] = [];
     const totalBatches = Math.ceil(toReview.length / BATCH_SIZE);
@@ -512,7 +541,6 @@ export function Editor() {
         target_text: t.target_text,
       }));
 
-      // Skicka ordlistan med (bara i första batchen, eller alltid — den är liten)
       const glossaryForApi = glossary.map((g) => ({
         source_term: g.source_term,
         definition: g.definition,
@@ -535,7 +563,6 @@ export function Editor() {
             const err = JSON.parse(text);
             detail = err.error ?? err.detail ?? detail;
           } catch {
-            // Netlify kan returnera HTML vid krasch
             if (text.includes('TimeoutError') || text.includes('Task timed out')) {
               detail = 'Funktionen tog för lång tid (timeout)';
             } else {
@@ -560,20 +587,14 @@ export function Editor() {
       }
     }
 
-    // ── Städa AI-resultatet innan det sparas ──
-    // Modellen (gpt-4o-mini) glömmer ibland ett fält. En rad utan key eller
-    // issue kan inte visas och måste bort; en trasig/saknad severity defaultar
-    // vi till 'info'. Poängen: EN enda trasig rad får inte fälla hela insert:en
-    // (key/issue/severity är NOT NULL i databasen) och därmed radera allt.
+    // Städa AI-resultatet
     const VALID_SEVERITY = ['error', 'warning', 'info'];
     const cleanFindings: AiFinding[] = [];
-    let skippedFindings = 0;
     for (const f of allFindings) {
       const key = typeof f.key === 'string' ? f.key.trim() : '';
       const issue = typeof f.issue === 'string' ? f.issue.trim() : '';
       if (!key || !issue) {
-        skippedFindings++;
-        console.warn('AI-finding saknar key/issue — hoppas över:', f); // debug
+        console.warn('AI-finding saknar key/issue — hoppas över:', f);
         continue;
       }
       cleanFindings.push({
@@ -589,33 +610,29 @@ export function Editor() {
     setAiFindings(cleanFindings);
 
     if (failedBatches === totalBatches) {
-      setAiProgress(`❌ Granskningen misslyckades. ${lastError}`);
+      setAiProgress(`Granskningen misslyckades. ${lastError}`);
     } else if (failedBatches > 0) {
       setAiProgress(
-        `⚠️ ${failedBatches} av ${totalBatches} batchar misslyckades. ${cleanFindings.length} problem hittade.`
+        `${failedBatches} av ${totalBatches} batchar misslyckades. ${cleanFindings.length} problem hittade.`
       );
     } else {
       setAiProgress(
         cleanFindings.length > 0
-          ? `✅ Klar! ${cleanFindings.length} problem hittade.`
-          : '✅ Klar! Inga problem hittades.'
+          ? `Klar! ${cleanFindings.length} problem hittade.`
+          : 'Klar! Inga problem hittades.'
       );
     }
     setAiReviewing(false);
     setAiDone(true);
 
-    // Spara AI-resultaten till Supabase (ersätt föregående körning).
-    // Vi raderar INTE de gamla raderna förrän de nya är sparade — annars kan
-    // ett misslyckat insert lämna projektet helt utan resultat.
+    // Spara AI-resultaten till Supabase
     if (failedBatches < totalBatches) {
-      // Fånga befintliga rader så vi kan radera dem EFTER ett lyckat insert
       const { data: oldRows } = await supabase
         .from('ai_findings')
         .select('id')
         .eq('project_id', id);
       const oldIds = (oldRows ?? []).map((r) => r.id);
 
-      // Inserta nya i batchar
       let insertOk = true;
       if (cleanFindings.length > 0) {
         const rows = cleanFindings.map((f) => ({
@@ -630,68 +647,52 @@ export function Editor() {
           const { error: insertErr } = await supabase.from('ai_findings').insert(batch);
           if (insertErr) {
             insertOk = false;
-            console.error('Kunde inte spara AI-findings:', insertErr); // debug
-            setSaveStatus('⚠️ AI-resultat kunde inte sparas till databasen');
+            console.error('Kunde inte spara AI-findings:', insertErr);
+            setSaveStatus('AI-resultat kunde inte sparas till databasen');
             break;
           }
         }
       }
 
-      // Radera de gamla bara om de nya kom in (eller om det inte fanns några nya)
       if (insertOk && oldIds.length > 0) {
         const { error: deleteErr } = await supabase
           .from('ai_findings')
           .delete()
           .in('id', oldIds);
-        if (deleteErr) console.error('Kunde inte radera gamla AI-findings:', deleteErr); // debug
+        if (deleteErr) console.error('Kunde inte radera gamla AI-findings:', deleteErr);
       }
     }
 
-    // Markera oflaggade keys som granskade (bara om granskningen lyckades)
+    // Beräkna kategori-sammanfattning
     if (failedBatches < totalBatches) {
       const flaggedKeys = new Set(cleanFindings.map((f) => f.key));
-      const toMarkReviewed = toReview.filter(
-        (t) => !flaggedKeys.has(t.key) && !t.reviewed
-      );
-
-      if (toMarkReviewed.length > 0) {
-        // Uppdatera lokalt direkt
-        const reviewedIds = new Set(toMarkReviewed.map((t) => t.id));
-        setTranslations((prev) =>
-          prev.map((t) =>
-            reviewedIds.has(t.id) ? { ...t, reviewed: true } : t
-          )
-        );
-
-        // Spara till Supabase i batchar
-        const ids = toMarkReviewed.map((t) => t.id);
-        for (let i = 0; i < ids.length; i += 500) {
-          const batch = ids.slice(i, i + 500);
-          await supabase
-            .from('translations')
-            .update({ reviewed: true })
-            .in('id', batch);
+      let approved = 0, rejected = 0, manuallyApproved = 0;
+      for (const t of translations) {
+        const isMissing = !t.target_text && !!t.source_text;
+        if (isMissing) { rejected++; continue; }
+        if (flaggedKeys.has(t.key)) {
+          if (t.target_text && t.manually_approved_text === t.target_text) {
+            manuallyApproved++;
+          } else {
+            rejected++;
+          }
+        } else if (t.target_text || t.source_text) {
+          approved++;
         }
-
-        setAiProgress((prev) =>
-          prev + ` ${toMarkReviewed.length} keys markerade som granskade.`
-        );
       }
-    }
-
-    // Visa en sammanfattningsruta när granskningen lyckats (helt eller delvis)
-    if (failedBatches < totalBatches) {
       setAiSummary({
-        errors: cleanFindings.filter((f) => f.severity === 'error').length,
-        warnings: cleanFindings.filter((f) => f.severity === 'warning').length,
-        info: cleanFindings.filter((f) => f.severity === 'info').length,
-        skipped: skippedFindings,
+        approved,
+        rejected,
+        manuallyApproved,
+        total: translations.length,
+        findings: cleanFindings.length,
       });
     }
   }
 
-  // Map för snabb uppslagning: key → finding(s)
-  const aiFindingsByKey = (() => {
+  // ── Memoized maps och beräkningar ──
+
+  const aiFindingsByKey = useMemo(() => {
     const map = new Map<string, AiFinding[]>();
     for (const f of aiFindings) {
       const list = map.get(f.key) ?? [];
@@ -699,11 +700,30 @@ export function Editor() {
       map.set(f.key, list);
     }
     return map;
-  })();
+  }, [aiFindings]);
 
-  // ── Sektioner (top-level nycklar) ──
+  const categoryMap = useMemo(() => {
+    const map = new Map<string, ReviewCategory>();
+    if (!aiDone) return map;
+    for (const t of translations) {
+      map.set(t.id, getCategory(t, aiFindingsByKey.has(t.key)));
+    }
+    return map;
+  }, [translations, aiDone, aiFindingsByKey]);
 
-  const sections: Section[] = (() => {
+  const categoryCounts = useMemo(() => {
+    let approved = 0, rejected = 0, manuallyApproved = 0;
+    for (const cat of categoryMap.values()) {
+      if (cat === 'ai-approved') approved++;
+      else if (cat === 'ai-rejected') rejected++;
+      else manuallyApproved++;
+    }
+    return { approved, rejected, manuallyApproved };
+  }, [categoryMap]);
+
+  // ── Sektioner ──
+
+  const sections: Section[] = useMemo(() => {
     const tree: Record<string, Translation[]> = {};
     for (const t of translations) {
       const top = t.key.split('.')[0];
@@ -713,16 +733,14 @@ export function Editor() {
     return Object.entries(tree).map(([key, items]) => ({
       key,
       count: items.length,
-      missingCount: items.filter((t) => !t.target_text && t.source_text).length,
     }));
-  })();
+  }, [translations]);
 
   // ── Filtrering ──
 
-  const filteredTranslations = (() => {
+  const filteredTranslations = useMemo(() => {
     let items = translations;
 
-    // Sökfilter (globalt, ignorerar sektion)
     if (search) {
       const q = search.toLowerCase();
       items = items.filter(
@@ -737,27 +755,16 @@ export function Editor() {
       );
     }
 
-    // Kategorifilter
-    if (filter === 'long') {
-      items = items.filter(
-        (t) => t.source_text.length > 80 || t.target_text.length > 80
-      );
-    } else if (filter === 'unreviewed') {
-      const base = search ? items : translations;
-      items = base.filter((t) => !t.reviewed);
-    } else if (filter === 'ai-flagged') {
-      const base = search ? items : translations;
-      items = base.filter((t) => aiFindingsByKey.has(t.key));
+    if (aiDone && filter !== 'all') {
+      items = items.filter((t) => categoryMap.get(t.id) === filter);
     }
 
     return items;
-  })();
+  }, [translations, search, activeSection, filter, aiDone, categoryMap]);
 
   // ── Stats ──
 
   const totalKeys = translations.length;
-  const missingCount = translations.filter((t) => !t.target_text && t.source_text).length;
-  const reviewedCount = translations.filter((t) => t.reviewed).length;
 
   // ── Render ──
 
@@ -794,47 +801,42 @@ export function Editor() {
         </div>
 
         <div className="filter-pills">
-          {(['all', 'unreviewed', 'long', ...(aiFindings.length > 0 ? ['ai-flagged'] : [])] as Filter[]).map((f) => (
-            <button
-              key={f}
-              className={`pill ${filter === f ? 'active' : ''} ${f === 'ai-flagged' ? 'pill-ai' : ''}`}
-              onClick={() => setFilter(f)}
-            >
-              {f === 'all' ? 'Alla' : f === 'unreviewed' ? 'Ej granskade' : f === 'long' ? 'Långa' : `🤖 AI (${aiFindings.length})`}
-            </button>
-          ))}
-        </div>
-
-        <div className="stats">
-          <span className="stat-reviewed">
-            <span className="stat-num">{reviewedCount}</span> / {totalKeys} granskade
-          </span>
-          <span className="stat-missing">
-            <span className="stat-num">{missingCount}</span> saknas
-          </span>
+          <button
+            className={`pill ${filter === 'all' ? 'active' : ''}`}
+            onClick={() => setFilter('all')}
+          >
+            Alla ({totalKeys})
+          </button>
+          {aiDone && (
+            <>
+              <button
+                className={`pill pill-approved ${filter === 'ai-approved' ? 'active' : ''}`}
+                onClick={() => setFilter('ai-approved')}
+              >
+                AI godkänd ({categoryCounts.approved})
+              </button>
+              <button
+                className={`pill pill-rejected ${filter === 'ai-rejected' ? 'active' : ''}`}
+                onClick={() => setFilter('ai-rejected')}
+              >
+                Ej godkänd ({categoryCounts.rejected})
+              </button>
+              <button
+                className={`pill pill-manually-approved ${filter === 'ai-rejected-manually-approved' ? 'active' : ''}`}
+                onClick={() => setFilter('ai-rejected-manually-approved')}
+              >
+                Manuellt godkänd ({categoryCounts.manuallyApproved})
+              </button>
+            </>
+          )}
         </div>
 
         <button className="action-btn import-btn" onClick={handleImport} disabled={importing}>
-          {importing ? 'Importerar...' : 'Importera JSON'}
+          {importing ? 'Importerar...' : 'Importera'}
         </button>
-        <label className={`action-btn glossary-btn ${glossary.length > 0 ? 'has-glossary' : ''}`}>
-          {importingGlossary
-            ? '📖 Importerar...'
-            : glossary.length > 0
-              ? `📖 Ordlista (${glossary.length})`
-              : '📖 Ladda ordlista'}
-          <input
-            type="file"
-            accept=".json"
-            style={{ display: 'none' }}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) importGlossary(f);
-              e.target.value = '';
-            }}
-            disabled={importingGlossary}
-          />
-        </label>
+        {glossary.length > 0 && (
+          <span className="glossary-badge">📖 {glossary.length} termer</span>
+        )}
         <button
           className="action-btn ai-btn"
           onClick={handleAiReview}
@@ -844,10 +846,10 @@ export function Editor() {
         </button>
         <button
           className="action-btn download-btn"
-          onClick={handleExport}
+          onClick={handleExportChanged}
           disabled={translations.length === 0}
         >
-          Ladda ner
+          Exportera ändrade
         </button>
 
         {saveStatus && <span className="save-indicator">{saveStatus}</span>}
@@ -878,7 +880,6 @@ export function Editor() {
               }}
             >
               <span>{sec.key}</span>
-              {sec.missingCount > 0 && <span className="badge badge-missing" />}
               <span className="count">{sec.count}</span>
             </div>
           ))}
@@ -886,7 +887,7 @@ export function Editor() {
 
         {/* Content */}
         <div className="content">
-          {/* AI-granskning progress/resultat */}
+          {/* AI-panel */}
           {(aiReviewing || aiFindings.length > 0 || aiDone) && showAiPanel && (
             <div className="ai-panel">
               <div className="ai-panel-header">
@@ -909,22 +910,24 @@ export function Editor() {
                   <div className="ai-progress-bar-fill" />
                 </div>
               )}
-              {aiFindings.length > 0 && (
+              {aiDone && categoryCounts.rejected > 0 && (
                 <div className="ai-panel-summary">
-                  <span className="ai-count ai-count-error">
-                    🔴 {aiFindings.filter((f) => f.severity === 'error').length} fel
+                  <span className="ai-count" style={{ color: 'var(--sage)' }}>
+                    ✅ {categoryCounts.approved} godkända
                   </span>
-                  <span className="ai-count ai-count-warning">
-                    🟡 {aiFindings.filter((f) => f.severity === 'warning').length} varningar
+                  <span className="ai-count" style={{ color: 'var(--berry)' }}>
+                    ❌ {categoryCounts.rejected} ej godkända
                   </span>
-                  <span className="ai-count ai-count-info">
-                    🔵 {aiFindings.filter((f) => f.severity === 'info').length} tips
-                  </span>
+                  {categoryCounts.manuallyApproved > 0 && (
+                    <span className="ai-count" style={{ color: 'var(--amber)' }}>
+                      ✋ {categoryCounts.manuallyApproved} manuellt godkända
+                    </span>
+                  )}
                   <button
-                    className="pill pill-ai"
-                    onClick={() => setFilter('ai-flagged')}
+                    className="pill pill-rejected"
+                    onClick={() => setFilter('ai-rejected')}
                   >
-                    Visa alla flaggade
+                    Visa ej godkända
                   </button>
                 </div>
               )}
@@ -934,7 +937,7 @@ export function Editor() {
           {filteredTranslations.length === 0 ? (
             <div className="no-results">
               {translations.length === 0
-                ? 'Inga översättningar ännu. Klicka "Importera JSON" för att ladda in filer.'
+                ? 'Inga översättningar ännu. Klicka "Importera" för att ladda in filer.'
                 : 'Inga nycklar matchar.'}
             </div>
           ) : (
@@ -943,9 +946,10 @@ export function Editor() {
                 key={t.id}
                 translation={t}
                 aiFindings={aiFindingsByKey.get(t.key)}
+                category={aiDone ? categoryMap.get(t.id) : undefined}
                 hasHistory={keysWithHistory.has(t.id)}
                 onSave={handleSave}
-                onToggleReviewed={handleToggleReviewed}
+                onToggleApproved={handleToggleApproved}
                 onShowHistory={() => {
                   setHistoryKey(t.key);
                   setHistoryTranslationId(t.id);
@@ -961,7 +965,7 @@ export function Editor() {
         <div className="modal-backdrop" onClick={() => setShowImportModal(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Importera JSON-filer</h2>
+              <h2>Importera filer</h2>
               <button className="modal-close" onClick={() => setShowImportModal(false)}>
                 ✕
               </button>
@@ -970,7 +974,7 @@ export function Editor() {
               <div className="import-fields">
                 <label className="import-field">
                   <span className="import-label">
-                    Engelska (referens)
+                    Engelska (en.json)
                     {enFile && <span className="import-ok">✓ {enFile.name}</span>}
                   </span>
                   <input
@@ -981,13 +985,24 @@ export function Editor() {
                 </label>
                 <label className="import-field">
                   <span className="import-label">
-                    Svenska (redigerbar)
+                    Svenska (sv.json)
                     {svFile && <span className="import-ok">✓ {svFile.name}</span>}
                   </span>
                   <input
                     type="file"
                     accept=".json"
                     onChange={(e) => setSvFile(e.target.files?.[0] ?? null)}
+                  />
+                </label>
+                <label className="import-field">
+                  <span className="import-label">
+                    Ordlista (valfri)
+                    {glossaryFile && <span className="import-ok">✓ {glossaryFile.name}</span>}
+                  </span>
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={(e) => setGlossaryFile(e.target.files?.[0] ?? null)}
                   />
                 </label>
               </div>
@@ -1019,25 +1034,36 @@ export function Editor() {
               </button>
             </div>
             <div className="modal-body">
-              <p style={{ margin: '0 0 8px', fontWeight: 600 }}>Resultat:</p>
-              <ul style={{ margin: '0 0 16px', paddingLeft: 20, lineHeight: 1.7 }}>
-                <li>🔴 {aiSummary.errors} fel</li>
-                <li>🟡 {aiSummary.warnings} varningar</li>
-                <li>🔵 {aiSummary.info} tips</li>
+              <p style={{ margin: '0 0 12px', fontWeight: 600 }}>
+                {aiSummary.total} texter analyserade:
+              </p>
+              <ul style={{ margin: '0 0 16px', paddingLeft: 20, lineHeight: 1.8 }}>
+                <li style={{ color: 'var(--sage)' }}>
+                  ✅ {aiSummary.approved} AI-godkända
+                </li>
+                <li style={{ color: 'var(--berry)' }}>
+                  ❌ {aiSummary.rejected} behöver granskas
+                </li>
+                {aiSummary.manuallyApproved > 0 && (
+                  <li style={{ color: 'var(--amber)' }}>
+                    ✋ {aiSummary.manuallyApproved} tidigare manuellt godkända
+                  </li>
+                )}
               </ul>
-              {aiSummary.skipped > 0 && (
-                <p style={{ margin: 0, opacity: 0.8 }}>
-                  Obs: AI kunde inte analysera {aiSummary.skipped}{' '}
-                  {aiSummary.skipped === 1 ? 'nyckel' : 'nycklar'}. De har
-                  markerats som granskade.
+              {aiSummary.findings > 0 && (
+                <p style={{ margin: '0 0 16px', color: 'var(--muted)', fontSize: 13 }}>
+                  AI hittade {aiSummary.findings} problem i texterna.
                 </p>
               )}
               <button
-                className="action-btn"
-                style={{ marginTop: 20, width: '100%', padding: '10px' }}
-                onClick={() => setAiSummary(null)}
+                className="action-btn pill-rejected"
+                style={{ width: '100%', padding: '10px', justifyContent: 'center' }}
+                onClick={() => {
+                  setAiSummary(null);
+                  setFilter('ai-rejected');
+                }}
               >
-                OK
+                Visa ej godkända
               </button>
             </div>
           </div>

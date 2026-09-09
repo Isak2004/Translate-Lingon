@@ -15,9 +15,13 @@ export interface Translation {
   source_text: string;
   target_text: string;
   reviewed: boolean;
+  manually_approved_text: string | null;
+  imported_target_text: string | null;
   created_at: string;
   updated_at: string;
 }
+
+export type ReviewCategory = 'ai-approved' | 'ai-rejected' | 'ai-rejected-manually-approved';
 
 export type ChangeType =
   | 'edit'

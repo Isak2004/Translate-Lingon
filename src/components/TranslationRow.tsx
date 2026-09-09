@@ -1,21 +1,23 @@
 import { memo, useRef, useEffect, useState } from 'react';
-import type { Translation, AiFinding } from '../types';
+import type { Translation, AiFinding, ReviewCategory } from '../types';
 
 interface Props {
   translation: Translation;
   aiFindings?: AiFinding[];
+  category?: ReviewCategory;
   hasHistory: boolean;
   onSave: (id: string, oldText: string, newText: string) => void;
-  onToggleReviewed: (id: string) => void;
+  onToggleApproved: (id: string) => void;
   onShowHistory: () => void;
 }
 
 export const TranslationRow = memo(function TranslationRow({
   translation: t,
   aiFindings,
+  category,
   hasHistory,
   onSave,
-  onToggleReviewed,
+  onToggleApproved,
   onShowHistory,
 }: Props) {
   const [showFindings, setShowFindings] = useState(false);
@@ -30,12 +32,12 @@ export const TranslationRow = memo(function TranslationRow({
     t.source_text.includes('\n') ||
     t.target_text.includes('\n');
 
-  // Synka lokal text när sparad text ändras (efter save eller extern uppdatering)
+  const isApproved = !!t.target_text && t.manually_approved_text === t.target_text;
+
   useEffect(() => {
     setLocalText(t.target_text);
   }, [t.target_text]);
 
-  // Auto-resize textarea
   useEffect(() => {
     if (ref.current && 'style' in ref.current && isLong) {
       const el = ref.current as HTMLTextAreaElement;
@@ -64,7 +66,7 @@ export const TranslationRow = memo(function TranslationRow({
   const className = [
     'entry',
     isMissing ? 'missing' : '',
-    t.reviewed ? 'reviewed' : '',
+    isApproved ? 'manually-approved' : '',
     hasAiFlag ? `ai-flagged ai-${worstSeverity}` : '',
   ]
     .filter(Boolean)
@@ -74,13 +76,22 @@ export const TranslationRow = memo(function TranslationRow({
     <div className={className}>
       <div className="entry-key">
         <button
-          className={`review-check ${t.reviewed ? 'checked' : ''}`}
-          onClick={() => onToggleReviewed(t.id)}
-          title={t.reviewed ? 'Markera som ej granskad' : 'Markera som granskad'}
+          className={`review-check ${isApproved ? 'checked' : ''}`}
+          onClick={() => onToggleApproved(t.id)}
+          title={isApproved ? 'Ta bort manuellt godkännande' : 'Godkänn manuellt'}
         >
-          {t.reviewed ? '✓' : ''}
+          {isApproved ? '✓' : ''}
         </button>
         <code>{t.key}</code>
+        {category && (
+          <span className={`category-badge category-${category}`}>
+            {category === 'ai-approved'
+              ? '✅'
+              : category === 'ai-rejected'
+                ? '❌'
+                : '✋'}
+          </span>
+        )}
         {hasAiFlag && (
           <button
             className={`ai-flag-btn ai-flag-${worstSeverity}`}
@@ -89,6 +100,9 @@ export const TranslationRow = memo(function TranslationRow({
           >
             🤖 {aiFindings!.length}
           </button>
+        )}
+        {isMissing && !hasAiFlag && (
+          <span className="ai-flag-btn ai-flag-warning">Text saknas</span>
         )}
         {hasHistory && (
           <button className="history-btn" onClick={onShowHistory} title="Visa historik">
