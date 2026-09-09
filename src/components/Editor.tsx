@@ -55,7 +55,7 @@ function getCategory(
 
 interface Section { key: string; count: number; }
 
-type Filter = 'all' | 'ai-approved' | 'ai-rejected' | 'ai-rejected-manually-approved';
+type Filter = 'all' | 'ai-approved' | 'ai-rejected' | 'ai-rejected-manually-approved' | 'manually-changed';
 
 export function Editor() {
   const { id } = useParams<{ id: string }>();
@@ -721,6 +721,16 @@ export function Editor() {
     return { approved, rejected, manuallyApproved };
   }, [categoryMap]);
 
+  const manuallyChangedCount = useMemo(() => {
+    let count = 0;
+    for (const t of translations) {
+      if (t.imported_target_text !== null && t.target_text !== t.imported_target_text && t.target_text) {
+        count++;
+      }
+    }
+    return count;
+  }, [translations]);
+
   // ── Sektioner ──
 
   const sections: Section[] = useMemo(() => {
@@ -755,7 +765,9 @@ export function Editor() {
       );
     }
 
-    if (aiDone && filter !== 'all') {
+    if (filter === 'manually-changed') {
+      items = items.filter((t) => t.imported_target_text !== null && t.target_text !== t.imported_target_text && t.target_text);
+    } else if (aiDone && filter !== 'all') {
       items = items.filter((t) => categoryMap.get(t.id) === filter);
     }
 
@@ -828,6 +840,14 @@ export function Editor() {
                 Manuellt godkänd ({categoryCounts.manuallyApproved})
               </button>
             </>
+          )}
+          {manuallyChangedCount > 0 && (
+            <button
+              className={`pill pill-changed ${filter === 'manually-changed' ? 'active' : ''}`}
+              onClick={() => setFilter('manually-changed')}
+            >
+              Ändrade ({manuallyChangedCount})
+            </button>
           )}
         </div>
 

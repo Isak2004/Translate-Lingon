@@ -806,6 +806,14 @@ a:hover { text-decoration: underline; }
 .pill-manually-approved:hover { background: color-mix(in srgb, var(--amber) 15%, transparent); }
 .pill.active.pill-manually-approved { background: var(--amber); color: #fff; border-color: var(--amber); }
 
+.pill-changed {
+  background: color-mix(in srgb, #6366f1 10%, transparent);
+  color: #6366f1;
+  border-color: color-mix(in srgb, #6366f1 40%, transparent);
+}
+.pill-changed:hover { background: color-mix(in srgb, #6366f1 15%, transparent); }
+.pill.active.pill-changed { background: #6366f1; color: #fff; border-color: #6366f1; }
+
 /* ── Category badge on entry ── */
 .category-badge {
   font-size: 12px;
