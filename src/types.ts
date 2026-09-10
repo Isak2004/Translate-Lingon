@@ -17,6 +17,7 @@ export interface Translation {
   reviewed: boolean;
   manually_approved_text: string | null;
   imported_target_text: string | null;
+  ai_reviewed_at: string | null;
   created_at: string;
   updated_at: string;
 }

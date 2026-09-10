@@ -78,7 +78,6 @@ export function Editor() {
   const [aiReviewing, setAiReviewing] = useState(false);
   const [aiProgress, setAiProgress] = useState('');
   const [showAiPanel, setShowAiPanel] = useState(false);
-  const [aiDone, setAiDone] = useState(false);
   const [aiSummary, setAiSummary] = useState<{
     approved: number; rejected: number; manuallyApproved: number;
     total: number; findings: number;
@@ -92,6 +91,7 @@ export function Editor() {
   const [glossaryFile, setGlossaryFile] = useState<File | null>(null);
 
   const [saveStatus, setSaveStatus] = useState('');
+  const [showAiConfirm, setShowAiConfirm] = useState(false);
 
   // ── Ladda projekt och översättningar ──
 
@@ -182,7 +182,6 @@ export function Editor() {
       }));
       setAiFindings(findings);
       setShowAiPanel(true);
-      setAiDone(true);
 
       const latest = data.reduce((a, b) =>
         a.created_at > b.created_at ? a : b
@@ -518,22 +517,28 @@ export function Editor() {
 
   async function handleAiReview() {
     if (translations.length === 0) return;
-    setAiReviewing(true);
-    setAiFindings([]);
-    setShowAiPanel(true);
-    setAiDone(false);
 
-    const toReview = translations.filter((t) => t.target_text && t.source_text);
+    const toReview = translations.filter((t) => t.target_text && t.source_text && !t.ai_reviewed_at);
+
+    if (toReview.length === 0) {
+      setAiProgress('Alla nycklar är redan AI-granskade.');
+      setShowAiPanel(true);
+      return;
+    }
+
+    setAiReviewing(true);
+    const existingFindings = [...aiFindings];
+    setShowAiPanel(true);
 
     const BATCH_SIZE = 100;
-    const allFindings: AiFinding[] = [];
+    const newFindings: AiFinding[] = [];
     const totalBatches = Math.ceil(toReview.length / BATCH_SIZE);
     let failedBatches = 0;
     let lastError = '';
 
     for (let i = 0; i < toReview.length; i += BATCH_SIZE) {
       const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-      setAiProgress(`Granskar batch ${batchNum} av ${totalBatches}...`);
+      setAiProgress(`Granskar batch ${batchNum} av ${totalBatches} (${toReview.length} nya nycklar)...`);
 
       const batch = toReview.slice(i, i + BATCH_SIZE).map((t) => ({
         key: t.key,
@@ -577,8 +582,8 @@ export function Editor() {
 
         const data = await res.json();
         if (data.findings?.length > 0) {
-          allFindings.push(...data.findings);
-          setAiFindings([...allFindings]);
+          newFindings.push(...data.findings);
+          setAiFindings([...existingFindings, ...newFindings]);
         }
       } catch (err) {
         console.error('Network error:', err);
@@ -587,17 +592,17 @@ export function Editor() {
       }
     }
 
-    // Städa AI-resultatet
+    // Städa nya findings
     const VALID_SEVERITY = ['error', 'warning', 'info'];
-    const cleanFindings: AiFinding[] = [];
-    for (const f of allFindings) {
+    const cleanNewFindings: AiFinding[] = [];
+    for (const f of newFindings) {
       const key = typeof f.key === 'string' ? f.key.trim() : '';
       const issue = typeof f.issue === 'string' ? f.issue.trim() : '';
       if (!key || !issue) {
         console.warn('AI-finding saknar key/issue — hoppas över:', f);
         continue;
       }
-      cleanFindings.push({
+      cleanNewFindings.push({
         key,
         issue,
         suggestion: typeof f.suggestion === 'string' ? f.suggestion : null,
@@ -607,65 +612,67 @@ export function Editor() {
       });
     }
 
-    setAiFindings(cleanFindings);
+    const allFindings = [...existingFindings, ...cleanNewFindings];
+    setAiFindings(allFindings);
 
     if (failedBatches === totalBatches) {
       setAiProgress(`Granskningen misslyckades. ${lastError}`);
     } else if (failedBatches > 0) {
       setAiProgress(
-        `${failedBatches} av ${totalBatches} batchar misslyckades. ${cleanFindings.length} problem hittade.`
+        `${failedBatches} av ${totalBatches} batchar misslyckades. ${cleanNewFindings.length} nya problem hittade.`
       );
     } else {
       setAiProgress(
-        cleanFindings.length > 0
-          ? `Klar! ${cleanFindings.length} problem hittade.`
-          : 'Klar! Inga problem hittades.'
+        cleanNewFindings.length > 0
+          ? `Klar! ${cleanNewFindings.length} nya problem hittade (${toReview.length} nycklar granskade).`
+          : `Klar! Inga problem i ${toReview.length} nya nycklar.`
       );
     }
     setAiReviewing(false);
-    setAiDone(true);
 
-    // Spara AI-resultaten till Supabase
-    if (failedBatches < totalBatches) {
-      const { data: oldRows } = await supabase
-        .from('ai_findings')
-        .select('id')
-        .eq('project_id', id);
-      const oldIds = (oldRows ?? []).map((r) => r.id);
-
-      let insertOk = true;
-      if (cleanFindings.length > 0) {
-        const rows = cleanFindings.map((f) => ({
-          project_id: id!,
-          key: f.key,
-          issue: f.issue,
-          suggestion: f.suggestion,
-          severity: f.severity,
-        }));
-        for (let i = 0; i < rows.length; i += 500) {
-          const batch = rows.slice(i, i + 500);
-          const { error: insertErr } = await supabase.from('ai_findings').insert(batch);
-          if (insertErr) {
-            insertOk = false;
-            console.error('Kunde inte spara AI-findings:', insertErr);
-            setSaveStatus('AI-resultat kunde inte sparas till databasen');
-            break;
-          }
+    // Spara bara NYA findings till DB
+    if (failedBatches < totalBatches && cleanNewFindings.length > 0) {
+      const rows = cleanNewFindings.map((f) => ({
+        project_id: id!,
+        key: f.key,
+        issue: f.issue,
+        suggestion: f.suggestion,
+        severity: f.severity,
+      }));
+      for (let i = 0; i < rows.length; i += 500) {
+        const batch = rows.slice(i, i + 500);
+        const { error: insertErr } = await supabase.from('ai_findings').insert(batch);
+        if (insertErr) {
+          console.error('Kunde inte spara AI-findings:', insertErr);
+          setSaveStatus('AI-resultat kunde inte sparas till databasen');
+          break;
         }
-      }
-
-      if (insertOk && oldIds.length > 0) {
-        const { error: deleteErr } = await supabase
-          .from('ai_findings')
-          .delete()
-          .in('id', oldIds);
-        if (deleteErr) console.error('Kunde inte radera gamla AI-findings:', deleteErr);
       }
     }
 
-    // Beräkna kategori-sammanfattning
+    // Markera granskade nycklar med tidstämpel
     if (failedBatches < totalBatches) {
-      const flaggedKeys = new Set(cleanFindings.map((f) => f.key));
+      const now = new Date().toISOString();
+      const reviewedIds = toReview.map((t) => t.id);
+      for (let i = 0; i < reviewedIds.length; i += 500) {
+        const batch = reviewedIds.slice(i, i + 500);
+        await supabase
+          .from('translations')
+          .update({ ai_reviewed_at: now })
+          .in('id', batch);
+      }
+
+      const reviewedIdSet = new Set(reviewedIds);
+      setTranslations((prev) =>
+        prev.map((t) =>
+          reviewedIdSet.has(t.id) ? { ...t, ai_reviewed_at: now } : t
+        )
+      );
+    }
+
+    // Sammanfattning med ALLA findings (gamla + nya)
+    if (failedBatches < totalBatches) {
+      const flaggedKeys = new Set(allFindings.map((f) => f.key));
       let approved = 0, rejected = 0, manuallyApproved = 0;
       for (const t of translations) {
         const isMissing = !t.target_text && !!t.source_text;
@@ -685,7 +692,7 @@ export function Editor() {
         rejected,
         manuallyApproved,
         total: translations.length,
-        findings: cleanFindings.length,
+        findings: allFindings.length,
       });
     }
   }
@@ -701,6 +708,8 @@ export function Editor() {
     }
     return map;
   }, [aiFindings]);
+
+  const aiDone = useMemo(() => translations.some((t) => !!t.ai_reviewed_at), [translations]);
 
   const categoryMap = useMemo(() => {
     const map = new Map<string, ReviewCategory>();
@@ -859,7 +868,7 @@ export function Editor() {
         )}
         <button
           className="action-btn ai-btn"
-          onClick={handleAiReview}
+          onClick={() => setShowAiConfirm(true)}
           disabled={aiReviewing || translations.length === 0}
         >
           {aiReviewing ? '🤖 Granskar...' : '🤖 Granska med AI'}
@@ -1085,6 +1094,49 @@ export function Editor() {
               >
                 Visa ej godkända
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI-bekräftelse */}
+      {showAiConfirm && (
+        <div className="modal-backdrop" onClick={() => setShowAiConfirm(false)}>
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 460 }}
+          >
+            <div className="modal-header">
+              <h2>AI-analys</h2>
+              <button className="modal-close" onClick={() => setShowAiConfirm(false)}>
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <p style={{ margin: '0 0 20px', lineHeight: 1.6 }}>
+                AI-analysen görs bara en gång på varje nyckel. Nya nycklar processas,
+                gamla lämnas som de är. Om du vill börja från början med alla nycklar,
+                öppna ett nytt projekt.
+              </p>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button
+                  className="action-btn"
+                  style={{ background: 'var(--panel-2)', color: 'var(--ink)' }}
+                  onClick={() => setShowAiConfirm(false)}
+                >
+                  Avbryt
+                </button>
+                <button
+                  className="action-btn ai-btn"
+                  onClick={() => {
+                    setShowAiConfirm(false);
+                    handleAiReview();
+                  }}
+                >
+                  🤖 Kör AI-analys
+                </button>
+              </div>
             </div>
           </div>
         </div>

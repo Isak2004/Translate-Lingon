@@ -46,6 +46,22 @@ export function ProjectList() {
     setCreating(false);
   }
 
+  async function renameProject(id: string, currentName: string) {
+    const newName = prompt('Nytt namn:', currentName);
+    if (!newName || !newName.trim() || newName.trim() === currentName) return;
+
+    const { error } = await supabase
+      .from('projects')
+      .update({ name: newName.trim() })
+      .eq('id', id);
+
+    if (error) {
+      alert('Kunde inte byta namn: ' + error.message);
+    } else {
+      await loadProjects();
+    }
+  }
+
   async function deleteProject(id: string, projectName: string) {
     if (!confirm(`Ta bort "${projectName}" och alla dess översättningar?`)) return;
 
@@ -98,6 +114,13 @@ export function ProjectList() {
                   Uppdaterad {new Date(p.updated_at).toLocaleDateString('sv-SE')}
                 </span>
               </Link>
+              <button
+                className="rename-btn"
+                onClick={() => renameProject(p.id, p.name)}
+                title="Byt namn"
+              >
+                ✏️
+              </button>
               <button
                 className="delete-btn"
                 onClick={() => deleteProject(p.id, p.name)}
