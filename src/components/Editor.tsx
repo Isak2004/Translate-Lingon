@@ -116,7 +116,7 @@ export function Editor() {
   async function loadTranslations() {
     let all: Translation[] = [];
     let from = 0;
-    const pageSize = 5000;
+    const pageSize = 1000;
 
     while (true) {
       const { data, error } = await supabase

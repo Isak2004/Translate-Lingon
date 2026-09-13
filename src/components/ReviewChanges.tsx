@@ -33,7 +33,7 @@ export function ReviewChanges() {
 
     let allTranslations: Translation[] = [];
     let from = 0;
-    const pageSize = 5000;
+    const pageSize = 1000;
     while (true) {
       const { data, error } = await supabase
         .from('translations')
