@@ -17,6 +17,7 @@ export function ReviewChanges() {
   const [reverting, setReverting] = useState<string | null>(null);
   const [editTexts, setEditTexts] = useState<Map<string, string>>(new Map());
   const [saving, setSaving] = useState<string | null>(null);
+  const [totalLoaded, setTotalLoaded] = useState(0);
 
   useEffect(() => {
     if (!id) return;
@@ -49,6 +50,8 @@ export function ReviewChanges() {
       if (!data || data.length < pageSize) break;
       from += pageSize;
     }
+
+    setTotalLoaded(allTranslations.length);
 
     const changed = allTranslations.filter(
       (t) =>
@@ -233,7 +236,7 @@ export function ReviewChanges() {
         </Link>
         <span className="brand">{project.name}</span>
         <span className="review-changes-title">Granska ändrade</span>
-        <span className="review-changes-count">{entries.length} ändrade nycklar</span>
+        <span className="review-changes-count">{entries.length} ändrade nycklar (av {totalLoaded} laddade)</span>
         <ThemeToggle />
       </div>
 
