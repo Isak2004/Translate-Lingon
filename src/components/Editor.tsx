@@ -412,8 +412,6 @@ export function Editor() {
       )
     );
 
-    setKeysWithHistory((prev) => new Set(prev).add(translationId));
-
     const time = new Date().toLocaleTimeString('sv-SE', {
       hour: '2-digit',
       minute: '2-digit',
