@@ -214,14 +214,14 @@ a:hover { text-decoration: underline; }
 
 /* Topbar */
 .topbar {
-  height: var(--topbar-h);
   border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
-  padding: 0 16px;
-  gap: 10px;
+  padding: 8px 16px;
+  gap: 8px;
   flex-shrink: 0;
   background: var(--bg);
+  flex-wrap: wrap;
 }
 .back-link {
   font-size: 18px;
@@ -262,7 +262,7 @@ a:hover { text-decoration: underline; }
   color: var(--faint);
 }
 
-.filter-pills { display: flex; gap: 4px; }
+.filter-pills { display: flex; gap: 4px; flex-basis: 100%; flex-wrap: wrap; }
 .pill {
   padding: 4px 12px;
   border-radius: var(--r-pill);
@@ -842,7 +842,7 @@ a:hover { text-decoration: underline; }
 @media (max-width: 900px) {
   .sidebar { display: none; }
   .entry { grid-template-columns: 1fr; }
-  .topbar { flex-wrap: wrap; height: auto; padding: 10px 12px; gap: 8px; }
+  .topbar { padding: 10px 12px; gap: 8px; }
 }
 
 /* ── Scrollbar ── */

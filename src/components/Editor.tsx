@@ -821,6 +821,30 @@ export function Editor() {
           />
         </div>
 
+        <button className="action-btn import-btn" onClick={handleImport} disabled={importing}>
+          {importing ? 'Importerar...' : 'Importera'}
+        </button>
+        {glossary.length > 0 && (
+          <span className="glossary-badge">📖 {glossary.length} termer</span>
+        )}
+        <button
+          className="action-btn ai-btn"
+          onClick={() => setShowAiConfirm(true)}
+          disabled={aiReviewing || translations.length === 0}
+        >
+          {aiReviewing ? '🤖 Granskar...' : '🤖 Granska med AI'}
+        </button>
+        <button
+          className="action-btn download-btn"
+          onClick={handleExportChanged}
+          disabled={translations.length === 0}
+        >
+          Exportera ändrade
+        </button>
+
+        {saveStatus && <span className="save-indicator">{saveStatus}</span>}
+        <ThemeToggle />
+
         <div className="filter-pills">
           <button
             className={`pill ${filter === 'all' ? 'active' : ''}`}
@@ -859,30 +883,6 @@ export function Editor() {
             </button>
           )}
         </div>
-
-        <button className="action-btn import-btn" onClick={handleImport} disabled={importing}>
-          {importing ? 'Importerar...' : 'Importera'}
-        </button>
-        {glossary.length > 0 && (
-          <span className="glossary-badge">📖 {glossary.length} termer</span>
-        )}
-        <button
-          className="action-btn ai-btn"
-          onClick={() => setShowAiConfirm(true)}
-          disabled={aiReviewing || translations.length === 0}
-        >
-          {aiReviewing ? '🤖 Granskar...' : '🤖 Granska med AI'}
-        </button>
-        <button
-          className="action-btn download-btn"
-          onClick={handleExportChanged}
-          disabled={translations.length === 0}
-        >
-          Exportera ändrade
-        </button>
-
-        {saveStatus && <span className="save-indicator">{saveStatus}</span>}
-        <ThemeToggle />
       </div>
 
       {/* Body */}
