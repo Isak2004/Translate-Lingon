@@ -841,6 +841,11 @@ export function Editor() {
         >
           Exportera ändrade
         </button>
+        {manuallyChangedCount > 0 && (
+          <Link to={`/project/${id}/review`} className="action-btn review-btn">
+            Granska ändrade
+          </Link>
+        )}
 
         {saveStatus && <span className="save-indicator">{saveStatus}</span>}
         <ThemeToggle />
