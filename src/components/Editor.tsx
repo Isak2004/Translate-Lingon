@@ -65,7 +65,6 @@ export function Editor() {
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
 
-  const [keysWithHistory, setKeysWithHistory] = useState<Set<string>>(new Set());
   const translationsRef = useRef<Translation[]>([]);
   translationsRef.current = translations;
 
@@ -117,7 +116,7 @@ export function Editor() {
   async function loadTranslations() {
     let all: Translation[] = [];
     let from = 0;
-    const pageSize = 1000;
+    const pageSize = 5000;
 
     while (true) {
       const { data, error } = await supabase
@@ -139,25 +138,6 @@ export function Editor() {
 
     setTranslations(all);
     setLoading(false);
-    await loadKeysWithHistory(all.map((t) => t.id));
-  }
-
-  async function loadKeysWithHistory(translationIds: string[]) {
-    if (translationIds.length === 0) return;
-    const historyIds = new Set<string>();
-
-    for (let i = 0; i < translationIds.length; i += 500) {
-      const batch = translationIds.slice(i, i + 500);
-      const { data } = await supabase
-        .from('translation_history')
-        .select('translation_id')
-        .in('translation_id', batch);
-      for (const row of data ?? []) {
-        historyIds.add(row.translation_id);
-      }
-    }
-
-    setKeysWithHistory(historyIds);
   }
 
   async function loadGlossary() {
@@ -971,7 +951,7 @@ export function Editor() {
                 translation={t}
                 aiFindings={aiFindingsByKey.get(t.key)}
                 category={aiDone ? categoryMap.get(t.id) : undefined}
-                hasHistory={keysWithHistory.has(t.id)}
+                hasHistory={true}
                 onSave={handleSave}
                 onToggleApproved={handleToggleApproved}
                 onShowHistory={() => {

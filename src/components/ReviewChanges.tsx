@@ -24,18 +24,33 @@ export function ReviewChanges() {
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadData() {
-    const [{ data: proj }, { data: allTranslations }] = await Promise.all([
-      supabase.from('projects').select('*').eq('id', id).single(),
-      supabase
+    const { data: proj } = await supabase
+      .from('projects')
+      .select('*')
+      .eq('id', id)
+      .single();
+    setProject(proj);
+
+    let allTranslations: Translation[] = [];
+    let from = 0;
+    const pageSize = 5000;
+    while (true) {
+      const { data, error } = await supabase
         .from('translations')
         .select('*')
         .eq('project_id', id)
-        .order('key'),
-    ]);
+        .order('key')
+        .range(from, from + pageSize - 1);
+      if (error) {
+        console.error('Kunde inte ladda översättningar:', error);
+        break;
+      }
+      allTranslations = allTranslations.concat(data ?? []);
+      if (!data || data.length < pageSize) break;
+      from += pageSize;
+    }
 
-    setProject(proj);
-
-    const changed = (allTranslations ?? []).filter(
+    const changed = allTranslations.filter(
       (t) =>
         t.imported_target_text !== null &&
         t.target_text !== t.imported_target_text &&
