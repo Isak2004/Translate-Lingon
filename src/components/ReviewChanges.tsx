@@ -15,6 +15,8 @@ export function ReviewChanges() {
   const [entries, setEntries] = useState<ChangedEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [reverting, setReverting] = useState<string | null>(null);
+  const [editTexts, setEditTexts] = useState<Map<string, string>>(new Map());
+  const [saving, setSaving] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -74,6 +76,68 @@ export function ReviewChanges() {
     setLoading(false);
   }
 
+  function getEditText(translationId: string, currentText: string): string {
+    return editTexts.get(translationId) ?? currentText;
+  }
+
+  function setEditText(translationId: string, text: string) {
+    setEditTexts((prev) => {
+      const next = new Map(prev);
+      next.set(translationId, text);
+      return next;
+    });
+  }
+
+  async function handleSaveEdit(translationId: string, oldText: string, newText: string) {
+    if (oldText === newText || !newText) return;
+
+    setSaving(translationId);
+
+    const { error: updateError } = await supabase
+      .from('translations')
+      .update({ target_text: newText, manually_approved_text: newText })
+      .eq('id', translationId);
+
+    if (updateError) {
+      alert('Kunde inte spara: ' + updateError.message);
+      setSaving(null);
+      return;
+    }
+
+    await supabase.from('translation_history').insert({
+      translation_id: translationId,
+      old_text: oldText,
+      new_text: newText,
+      changed_by: 'anonymous',
+      change_type: 'edit',
+    });
+
+    setEntries((prev) =>
+      prev
+        .map((e) => {
+          if (e.translation.id !== translationId) return e;
+          if (newText === e.translation.imported_target_text) return null!;
+          return {
+            ...e,
+            translation: {
+              ...e.translation,
+              target_text: newText,
+              manually_approved_text: newText,
+            },
+          };
+        })
+        .filter(Boolean),
+    );
+
+    setEditTexts((prev) => {
+      const next = new Map(prev);
+      next.delete(translationId);
+      return next;
+    });
+
+    setSaving(null);
+  }
+
   async function handleRevert(translationId: string, oldText: string, currentText: string) {
     if (!confirm(`Återställ till: "${oldText}"?`)) return;
 
@@ -102,16 +166,24 @@ export function ReviewChanges() {
       prev
         .map((e) => {
           if (e.translation.id !== translationId) return e;
-          const updated = {
-            ...e.translation,
-            target_text: oldText,
-            manually_approved_text: oldText,
-          };
           if (oldText === e.translation.imported_target_text) return null!;
-          return { ...e, translation: updated };
+          return {
+            ...e,
+            translation: {
+              ...e.translation,
+              target_text: oldText,
+              manually_approved_text: oldText,
+            },
+          };
         })
         .filter(Boolean),
     );
+
+    setEditTexts((prev) => {
+      const next = new Map(prev);
+      next.delete(translationId);
+      return next;
+    });
 
     setReverting(null);
   }
@@ -158,8 +230,11 @@ export function ReviewChanges() {
         ) : (
           entries.map((entry) => {
             const t = entry.translation;
+            const editText = getEditText(t.id, t.target_text);
+            const isDirty = editText !== t.target_text;
             const uniqueTexts = new Set<string>();
             uniqueTexts.add(t.target_text);
+            if (isDirty) uniqueTexts.add(editText);
 
             return (
               <div key={t.id} className="review-card">
@@ -170,7 +245,22 @@ export function ReviewChanges() {
 
                 <div className="review-card-current">
                   <span className="review-version-label">Nuvarande text</span>
-                  <div className="review-version-text current">{t.target_text}</div>
+                  <div className="review-edit-row">
+                    <textarea
+                      className="review-edit-input"
+                      value={editText}
+                      onChange={(e) => setEditText(t.id, e.target.value)}
+                      rows={Math.max(2, editText.split('\n').length)}
+                    />
+                    <button
+                      className={`save-btn ${isDirty ? 'active' : ''}`}
+                      disabled={!isDirty || saving === t.id}
+                      onClick={() => handleSaveEdit(t.id, t.target_text, editText)}
+                      title="Spara ändringar"
+                    >
+                      {saving === t.id ? '...' : '💾'}
+                    </button>
+                  </div>
                 </div>
 
                 {t.imported_target_text && t.imported_target_text !== t.target_text && (

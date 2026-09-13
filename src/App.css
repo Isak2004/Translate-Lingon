@@ -928,6 +928,28 @@ a:hover { text-decoration: underline; }
   font-weight: 500;
 }
 
+.review-edit-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.review-edit-input {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: var(--r-sm);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--sage-tint);
+  border: 1px solid var(--sage);
+  font-family: inherit;
+  resize: vertical;
+}
+.review-edit-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--sage-tint);
+}
+
 .review-card-version,
 .review-card-history {
   margin-top: 12px;

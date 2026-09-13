@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { TranslationRow } from './TranslationRow';
@@ -66,6 +66,8 @@ export function Editor() {
   const [importing, setImporting] = useState(false);
 
   const [keysWithHistory, setKeysWithHistory] = useState<Set<string>>(new Set());
+  const translationsRef = useRef<Translation[]>([]);
+  translationsRef.current = translations;
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
@@ -442,25 +444,11 @@ export function Editor() {
   // ── Manuellt godkännande (toggle) ──
 
   const handleToggleApproved = useCallback(async (translationId: string) => {
-    let newApprovedText: string | null = null;
-    let prevApprovedText: string | null = null;
-    let didChange = false;
+    const t = translationsRef.current.find((tr) => tr.id === translationId);
+    if (!t || !t.target_text) return;
 
-    setTranslations((prev) => {
-      const t = prev.find((tr) => tr.id === translationId);
-      if (!t || !t.target_text) return prev;
-
-      prevApprovedText = t.manually_approved_text;
-      const isApproved = t.manually_approved_text === t.target_text;
-      newApprovedText = isApproved ? null : t.target_text;
-      didChange = true;
-
-      return prev.map((tr) =>
-        tr.id === translationId ? { ...tr, manually_approved_text: newApprovedText } : tr
-      );
-    });
-
-    if (!didChange) return;
+    const isApproved = t.manually_approved_text === t.target_text;
+    const newApprovedText = isApproved ? null : t.target_text;
 
     const { error } = await supabase
       .from('translations')
@@ -469,12 +457,14 @@ export function Editor() {
 
     if (error) {
       console.error('Kunde inte uppdatera godkännande:', error);
-      setTranslations((prev) =>
-        prev.map((tr) =>
-          tr.id === translationId ? { ...tr, manually_approved_text: prevApprovedText } : tr
-        )
-      );
+      return;
     }
+
+    setTranslations((prev) =>
+      prev.map((tr) =>
+        tr.id === translationId ? { ...tr, manually_approved_text: newApprovedText } : tr
+      )
+    );
   }, []);
 
   // ── Export av ändrade nycklar ──
