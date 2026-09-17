@@ -799,6 +799,80 @@ a:hover { text-decoration: underline; }
 }
 .ai-suggestion-label { font-weight: 600; font-style: normal; }
 
+/* ── Conflict panel ── */
+.conflict-panel {
+  grid-column: 1 / -1;
+  background: color-mix(in srgb, var(--error) 5%, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--error) 25%, transparent);
+  border-radius: var(--r-sm);
+  padding: 12px 14px;
+  margin-top: 4px;
+}
+.conflict-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--error);
+  margin-bottom: 10px;
+}
+.conflict-texts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.conflict-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 4px;
+}
+.conflict-value {
+  font-size: 13px;
+  color: var(--ink);
+  line-height: 1.5;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  white-space: pre-wrap;
+}
+.conflict-actions {
+  display: flex;
+  gap: 8px;
+}
+.conflict-btn {
+  padding: 6px 14px;
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  font-weight: 500;
+  border: 1px solid;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.conflict-keep {
+  background: var(--sage-tint);
+  color: var(--sage);
+  border-color: color-mix(in srgb, var(--sage) 40%, transparent);
+}
+.conflict-keep:hover { background: color-mix(in srgb, var(--sage) 15%, transparent); }
+.conflict-take {
+  background: var(--amber-tint);
+  color: var(--amber);
+  border-color: color-mix(in srgb, var(--amber) 40%, transparent);
+}
+.conflict-take:hover { background: color-mix(in srgb, var(--amber) 15%, transparent); }
+
+.pill-conflict {
+  background: color-mix(in srgb, var(--error) 10%, transparent);
+  color: var(--error);
+  border-color: color-mix(in srgb, var(--error) 30%, transparent);
+}
+.pill-conflict:hover { background: color-mix(in srgb, var(--error) 18%, transparent); }
+.pill.active.pill-conflict { background: var(--error); color: #fff; border-color: var(--error); }
+
 /* ── Category filter pills ── */
 .pill-approved {
   background: var(--sage-tint);

@@ -55,7 +55,7 @@ function getCategory(
 
 interface Section { key: string; count: number; }
 
-type Filter = 'all' | 'ai-approved' | 'ai-rejected' | 'ai-rejected-manually-approved' | 'manually-changed';
+type Filter = 'all' | 'ai-approved' | 'ai-rejected' | 'ai-rejected-manually-approved' | 'manually-changed' | 'conflicts';
 
 export function Editor() {
   const { id } = useParams<{ id: string }>();
@@ -326,10 +326,18 @@ export function Editor() {
         if (existing.source_text !== newSourceText) {
           fields.source_text = newSourceText;
         }
-        const userHasNotEdited =
-          existing.target_text === existing.imported_target_text;
-        if (userHasNotEdited && existing.target_text !== newTargetText) {
+        const userHasEdited =
+          existing.target_text !== existing.imported_target_text;
+        const importTextChanged =
+          newTargetText !== existing.imported_target_text;
+
+        if (userHasEdited && importTextChanged) {
+          fields.has_conflict = true;
+        } else if (!userHasEdited && importTextChanged) {
           fields.target_text = newTargetText;
+          fields.has_conflict = false;
+        } else {
+          fields.has_conflict = false;
         }
         toUpdate.push({ id: existing.id, fields });
       }
@@ -447,6 +455,36 @@ export function Editor() {
     setTranslations((prev) =>
       prev.map((tr) =>
         tr.id === translationId ? { ...tr, manually_approved_text: newApprovedText } : tr
+      )
+    );
+  }, []);
+
+  // ── Konflikthantering ──
+
+  const handleResolveConflict = useCallback(async (translationId: string, keepOurs: boolean) => {
+    const t = translationsRef.current.find((tr) => tr.id === translationId);
+    if (!t) return;
+
+    const updates: Record<string, unknown> = { has_conflict: false };
+    if (!keepOurs) {
+      updates.target_text = t.imported_target_text;
+    }
+
+    const { error } = await supabase
+      .from('translations')
+      .update(updates)
+      .eq('id', translationId);
+
+    if (error) {
+      console.error('Kunde inte lösa konflikt:', error);
+      return;
+    }
+
+    setTranslations((prev) =>
+      prev.map((tr) =>
+        tr.id === translationId
+          ? { ...tr, has_conflict: false, ...(keepOurs ? {} : { target_text: t.imported_target_text! }) }
+          : tr
       )
     );
   }, []);
@@ -714,6 +752,14 @@ export function Editor() {
     return count;
   }, [translations]);
 
+  const conflictCount = useMemo(() => {
+    let count = 0;
+    for (const t of translations) {
+      if (t.has_conflict) count++;
+    }
+    return count;
+  }, [translations]);
+
   // ── Sektioner ──
 
   const sections: Section[] = useMemo(() => {
@@ -748,7 +794,9 @@ export function Editor() {
       );
     }
 
-    if (filter === 'manually-changed') {
+    if (filter === 'conflicts') {
+      items = items.filter((t) => t.has_conflict);
+    } else if (filter === 'manually-changed') {
       items = items.filter((t) => t.imported_target_text !== null && t.target_text !== t.imported_target_text && t.target_text);
     } else if (aiDone && filter !== 'all') {
       items = items.filter((t) => categoryMap.get(t.id) === filter);
@@ -877,6 +925,14 @@ export function Editor() {
               Ändrade ({manuallyChangedCount})
             </button>
           )}
+          {conflictCount > 0 && (
+            <button
+              className={`pill pill-conflict ${filter === 'conflicts' ? 'active' : ''}`}
+              onClick={() => setFilter('conflicts')}
+            >
+              Konflikter ({conflictCount})
+            </button>
+          )}
         </div>
       </div>
 
@@ -975,6 +1031,7 @@ export function Editor() {
                   hasHistory={true}
                   onSave={handleSave}
                   onToggleApproved={handleToggleApproved}
+                  onResolveConflict={handleResolveConflict}
                   onShowHistory={() => {
                     setHistoryKey(t.key);
                     setHistoryTranslationId(t.id);
