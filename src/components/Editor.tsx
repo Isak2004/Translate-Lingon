@@ -326,6 +326,11 @@ export function Editor() {
         if (existing.source_text !== newSourceText) {
           fields.source_text = newSourceText;
         }
+        const userHasNotEdited =
+          existing.target_text === existing.imported_target_text;
+        if (userHasNotEdited && existing.target_text !== newTargetText) {
+          fields.target_text = newTargetText;
+        }
         toUpdate.push({ id: existing.id, fields });
       }
     }
@@ -1095,6 +1100,16 @@ export function Editor() {
                 Visa ej godkända
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import-overlay */}
+      {importing && (
+        <div className="loading-overlay">
+          <div className="loading-box">
+            <div className="spinner" />
+            <p>Importerar översättningar...</p>
           </div>
         </div>
       )}
