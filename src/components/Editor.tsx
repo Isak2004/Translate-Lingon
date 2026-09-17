@@ -758,7 +758,14 @@ export function Editor() {
   // ── Render ──
 
   if (loading) {
-    return <div className="page-center">Laddar...</div>;
+    return (
+      <div className="loading-overlay">
+        <div className="loading-box">
+          <div className="spinner" />
+          <p>Laddar översättningar...</p>
+        </div>
+      </div>
+    );
   }
 
   if (!project) {
