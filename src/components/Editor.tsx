@@ -71,6 +71,7 @@ export function Editor() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(100);
 
   const [historyKey, setHistoryKey] = useState<string | null>(null);
   const [historyTranslationId, setHistoryTranslationId] = useState<string | null>(null);
@@ -751,6 +752,15 @@ export function Editor() {
     return items;
   }, [translations, search, activeSection, filter, aiDone, categoryMap]);
 
+  useEffect(() => {
+    setVisibleCount(100);
+  }, [search, activeSection, filter]);
+
+  const visibleTranslations = useMemo(
+    () => filteredTranslations.slice(0, visibleCount),
+    [filteredTranslations, visibleCount]
+  );
+
   // ── Stats ──
 
   const totalKeys = translations.length;
@@ -950,21 +960,31 @@ export function Editor() {
                 : 'Inga nycklar matchar.'}
             </div>
           ) : (
-            filteredTranslations.map((t) => (
-              <TranslationRow
-                key={t.id}
-                translation={t}
-                aiFindings={aiFindingsByKey.get(t.key)}
-                category={aiDone ? categoryMap.get(t.id) : undefined}
-                hasHistory={true}
-                onSave={handleSave}
-                onToggleApproved={handleToggleApproved}
-                onShowHistory={() => {
-                  setHistoryKey(t.key);
-                  setHistoryTranslationId(t.id);
-                }}
-              />
-            ))
+            <>
+              {visibleTranslations.map((t) => (
+                <TranslationRow
+                  key={t.id}
+                  translation={t}
+                  aiFindings={aiFindingsByKey.get(t.key)}
+                  category={aiDone ? categoryMap.get(t.id) : undefined}
+                  hasHistory={true}
+                  onSave={handleSave}
+                  onToggleApproved={handleToggleApproved}
+                  onShowHistory={() => {
+                    setHistoryKey(t.key);
+                    setHistoryTranslationId(t.id);
+                  }}
+                />
+              ))}
+              {visibleCount < filteredTranslations.length && (
+                <button
+                  className="load-more-btn"
+                  onClick={() => setVisibleCount((c) => c + 100)}
+                >
+                  Visa fler ({filteredTranslations.length - visibleCount} kvar)
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
