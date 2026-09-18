@@ -899,7 +899,8 @@ export function Editor() {
               className={`pill ${filter === 'all' ? 'active' : ''}`}
               onClick={() => setFilter('all')}
             >
-              Alla {totalKeys.toLocaleString('sv-SE')}
+              <span>Alla</span>
+              <span className="pill-count">{totalKeys.toLocaleString('sv-SE')}</span>
             </button>
             {aiDone && (
               <>
@@ -907,19 +908,25 @@ export function Editor() {
                   className={`pill pill-approved ${filter === 'ai-approved' ? 'active' : ''}`}
                   onClick={() => setFilter('ai-approved')}
                 >
-                  AI-godkänd {categoryCounts.approved.toLocaleString('sv-SE')}
+                  <span className="pill-dot" />
+                  <span>AI-godkänd</span>
+                  <span className="pill-count">{categoryCounts.approved.toLocaleString('sv-SE')}</span>
                 </button>
                 <button
                   className={`pill pill-rejected ${filter === 'ai-rejected' ? 'active' : ''}`}
                   onClick={() => setFilter('ai-rejected')}
                 >
-                  Ej godkänd {categoryCounts.rejected.toLocaleString('sv-SE')}
+                  <span className="pill-dot" />
+                  <span>Ej godkänd</span>
+                  <span className="pill-count">{categoryCounts.rejected.toLocaleString('sv-SE')}</span>
                 </button>
                 <button
                   className={`pill pill-manually-approved ${filter === 'ai-rejected-manually-approved' ? 'active' : ''}`}
                   onClick={() => setFilter('ai-rejected-manually-approved')}
                 >
-                  Manuellt godkänd {categoryCounts.manuallyApproved.toLocaleString('sv-SE')}
+                  <span className="pill-dot" />
+                  <span>Manuellt godkänd</span>
+                  <span className="pill-count">{categoryCounts.manuallyApproved.toLocaleString('sv-SE')}</span>
                 </button>
               </>
             )}
@@ -928,7 +935,9 @@ export function Editor() {
                 className={`pill pill-changed ${filter === 'manually-changed' ? 'active' : ''}`}
                 onClick={() => setFilter('manually-changed')}
               >
-                Ändrade {manuallyChangedCount}
+                <span className="pill-dot" />
+                <span>Ändrade</span>
+                <span className="pill-count">{manuallyChangedCount}</span>
               </button>
             )}
             {conflictCount > 0 && (
@@ -936,7 +945,9 @@ export function Editor() {
                 className={`pill pill-conflict ${filter === 'conflicts' ? 'active' : ''}`}
                 onClick={() => setFilter('conflicts')}
               >
-                Konflikter {conflictCount}
+                <span className="pill-dot" />
+                <span>Konflikter</span>
+                <span className="pill-count">{conflictCount}</span>
               </button>
             )}
           </div>

@@ -214,19 +214,22 @@ a:hover { text-decoration: underline; }
 
 /* Topbar */
 .topbar {
-  border-bottom: 1px solid var(--line);
   flex-shrink: 0;
   background: var(--bg);
 }
 .topbar-row {
   display: flex;
   align-items: center;
-  padding: 10px 16px;
-  gap: 8px;
+  padding: 0 20px;
+  height: 52px;
+  gap: 10px;
+  border-bottom: 1px solid var(--line);
 }
 .topbar-row-filters {
-  padding: 8px 16px;
-  border-top: 1px solid var(--line-soft);
+  height: 46px;
+  border-bottom: 1px solid var(--line);
+  padding: 0 20px;
+  gap: 12px;
 }
 .topbar-spacer { flex: 1; }
 .back-link {
@@ -243,19 +246,19 @@ a:hover { text-decoration: underline; }
 .search-box { width: 340px; flex-shrink: 0; position: relative; }
 .search-box input {
   width: 100%;
-  padding: 8px 12px 8px 32px;
+  padding: 6px 12px 6px 32px;
   border: 1px solid var(--line);
-  border-radius: var(--r-sm);
+  border-radius: 8px;
   background: var(--panel);
   color: var(--ink);
   font-family: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
   outline: none;
   transition: border-color .15s, box-shadow .15s;
 }
 .search-box input:focus {
-  border-color: var(--ink);
-  box-shadow: 0 0 0 3px var(--panel-2);
+  border-color: var(--berry);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--berry) 12%, transparent);
   background: var(--bg);
 }
 .search-box .search-icon {
@@ -263,27 +266,62 @@ a:hover { text-decoration: underline; }
   left: 10px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 12px;
+  font-size: 11px;
   pointer-events: none;
   color: var(--faint);
 }
 
-.filter-pills { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-.pill {
-  padding: 4px 12px;
-  border-radius: var(--r-pill);
+.filter-pills {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  padding: 3px;
+  background: var(--panel);
   border: 1px solid var(--line);
-  background: var(--bg);
+  border-radius: 10px;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--muted);
   font-family: inherit;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
   transition: all .15s;
 }
-.pill:hover { background: var(--panel); }
-.pill.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.pill:hover { background: var(--bg); color: var(--ink); }
+.pill.active {
+  background: var(--bg);
+  color: var(--ink);
+  border-color: var(--line);
+  box-shadow: var(--shadow-1);
+  font-weight: 600;
+}
+.pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.pill-count {
+  font-size: 10px;
+  font-family: var(--mono);
+  font-weight: 500;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--muted) 10%, transparent);
+}
+.pill.active .pill-count {
+  background: var(--panel);
+  color: var(--ink);
+}
 
 .stats { display: flex; gap: 12px; font-size: 12px; color: var(--muted); white-space: nowrap; }
 .stat-num { font-weight: 600; }
@@ -293,29 +331,47 @@ a:hover { text-decoration: underline; }
 .action-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  border-radius: var(--r-pill);
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 8px;
   font-family: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
-  border: none;
-  transition: background-color .15s, opacity .15s;
-}
-.import-btn {
+  border: 1px solid var(--line);
   background: var(--bg);
   color: var(--ink);
-  border: 1px solid var(--line);
+  transition: all .15s;
+  box-shadow: 0 1px 2px rgba(60,60,60,.04);
 }
-.import-btn:hover { background: var(--panel); }
+.action-btn:hover { background: var(--panel); border-color: var(--muted); }
 .import-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.download-btn {
-  background: var(--sage);
-  color: #fff;
+
+.review-btn {
+  background: color-mix(in srgb, var(--amber) 8%, var(--bg));
+  color: var(--amber);
+  border-color: color-mix(in srgb, var(--amber) 35%, transparent);
+  text-decoration: none;
 }
-.download-btn:hover { background: var(--sage-hover); }
+.review-btn:hover { background: color-mix(in srgb, var(--amber) 14%, var(--bg)); text-decoration: none; }
+
+.ai-btn {
+  background: var(--berry);
+  color: #fff;
+  border-color: var(--berry);
+  font-weight: 600;
+}
+.ai-btn:hover { background: var(--berry-hover); border-color: var(--berry-hover); }
+.ai-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.download-btn {
+  background: var(--ink);
+  color: var(--bg);
+  border-color: var(--ink);
+  font-weight: 600;
+}
+.download-btn:hover { background: color-mix(in srgb, var(--ink) 85%, transparent); }
 .download-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* Ordlista-knapp */
@@ -332,7 +388,16 @@ a:hover { text-decoration: underline; }
   color: var(--amber);
 }
 
-.save-indicator { font-size: 11px; color: var(--sage); white-space: nowrap; font-weight: 500; }
+.save-indicator {
+  font-size: 11px;
+  color: var(--sage);
+  white-space: nowrap;
+  font-weight: 500;
+  background: var(--sage-tint);
+  border: 1px solid color-mix(in srgb, var(--sage) 25%, transparent);
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+}
 
 /* ── Editor body ── */
 .editor-body { display: flex; flex: 1; overflow: hidden; }
@@ -871,46 +936,17 @@ a:hover { text-decoration: underline; }
 }
 .conflict-take:hover { background: color-mix(in srgb, var(--amber) 15%, transparent); }
 
-.pill-conflict {
-  background: color-mix(in srgb, var(--error) 10%, transparent);
-  color: var(--error);
-  border-color: color-mix(in srgb, var(--error) 30%, transparent);
-}
-.pill-conflict:hover { background: color-mix(in srgb, var(--error) 18%, transparent); }
-.pill.active.pill-conflict { background: var(--error); color: #fff; border-color: var(--error); }
+/* ── Category filter pill dot colors ── */
+.pill-approved .pill-dot { background: var(--sage); }
+.pill-rejected .pill-dot { background: var(--berry); }
+.pill-manually-approved .pill-dot { background: #6366f1; }
+.pill-changed .pill-dot { background: var(--amber); }
+.pill-conflict .pill-dot { background: var(--error); }
 
-/* ── Category filter pills ── */
-.pill-approved {
-  background: var(--sage-tint);
-  color: var(--sage);
-  border-color: color-mix(in srgb, var(--sage) 40%, transparent);
-}
-.pill-approved:hover { background: color-mix(in srgb, var(--sage) 15%, transparent); }
-.pill.active.pill-approved { background: var(--sage); color: #fff; border-color: var(--sage); }
-
-.pill-rejected {
-  background: color-mix(in srgb, var(--berry) 10%, transparent);
-  color: var(--berry);
-  border-color: color-mix(in srgb, var(--berry) 40%, transparent);
-}
-.pill-rejected:hover { background: color-mix(in srgb, var(--berry) 15%, transparent); }
-.pill.active.pill-rejected { background: var(--berry); color: #fff; border-color: var(--berry); }
-
-.pill-manually-approved {
-  background: var(--amber-tint);
-  color: var(--amber);
-  border-color: color-mix(in srgb, var(--amber) 40%, transparent);
-}
-.pill-manually-approved:hover { background: color-mix(in srgb, var(--amber) 15%, transparent); }
-.pill.active.pill-manually-approved { background: var(--amber); color: #fff; border-color: var(--amber); }
-
-.pill-changed {
-  background: color-mix(in srgb, #6366f1 10%, transparent);
-  color: #6366f1;
-  border-color: color-mix(in srgb, #6366f1 40%, transparent);
-}
-.pill-changed:hover { background: color-mix(in srgb, #6366f1 15%, transparent); }
-.pill.active.pill-changed { background: #6366f1; color: #fff; border-color: #6366f1; }
+.pill.active .pill-count { font-weight: 600; }
+.pill-rejected .pill-count { background: color-mix(in srgb, var(--berry) 10%, transparent); color: var(--berry); }
+.pill-conflict .pill-count { background: color-mix(in srgb, var(--error) 10%, transparent); color: var(--error); }
+.pill-changed .pill-count { background: color-mix(in srgb, var(--amber) 10%, transparent); color: var(--amber); }
 
 /* ── Category badge on entry ── */
 .category-badge {
@@ -926,12 +962,14 @@ a:hover { text-decoration: underline; }
 /* ── Glossary badge in header ── */
 .glossary-badge {
   font-size: 11px;
-  font-weight: 600;
-  color: var(--amber);
-  background: var(--amber-tint);
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--line);
   padding: 4px 10px;
-  border-radius: var(--r-pill);
+  border-radius: 8px;
   white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(60,60,60,.04);
 }
 
 /* ── Responsive ── */
