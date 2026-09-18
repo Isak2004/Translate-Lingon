@@ -215,14 +215,20 @@ a:hover { text-decoration: underline; }
 /* Topbar */
 .topbar {
   border-bottom: 1px solid var(--line);
-  display: flex;
-  align-items: center;
-  padding: 8px 16px;
-  gap: 8px;
   flex-shrink: 0;
   background: var(--bg);
-  flex-wrap: wrap;
 }
+.topbar-row {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  gap: 8px;
+}
+.topbar-row-filters {
+  padding: 8px 16px;
+  border-top: 1px solid var(--line-soft);
+}
+.topbar-spacer { flex: 1; }
 .back-link {
   font-size: 18px;
   padding: 4px 8px;
@@ -234,7 +240,7 @@ a:hover { text-decoration: underline; }
 .back-link:hover { background: var(--panel); color: var(--ink); text-decoration: none; }
 .brand { font-weight: 600; font-size: 14px; white-space: nowrap; color: var(--ink); }
 
-.search-box { flex: 1; max-width: 320px; position: relative; }
+.search-box { width: 340px; flex-shrink: 0; position: relative; }
 .search-box input {
   width: 100%;
   padding: 8px 12px 8px 32px;
@@ -262,7 +268,7 @@ a:hover { text-decoration: underline; }
   color: var(--faint);
 }
 
-.filter-pills { display: flex; gap: 4px; flex-basis: 100%; flex-wrap: wrap; }
+.filter-pills { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .pill {
   padding: 4px 12px;
   border-radius: var(--r-pill);
@@ -932,7 +938,8 @@ a:hover { text-decoration: underline; }
 @media (max-width: 900px) {
   .sidebar { display: none; }
   .entry { grid-template-columns: 1fr; }
-  .topbar { padding: 10px 12px; gap: 8px; }
+  .topbar-row { padding: 8px 12px; gap: 6px; flex-wrap: wrap; }
+  .search-box { width: 100%; }
 }
 
 /* ── Loading overlay ── */

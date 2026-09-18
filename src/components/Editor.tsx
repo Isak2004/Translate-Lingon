@@ -844,95 +844,102 @@ export function Editor() {
     <div className="editor-layout">
       {/* Topbar */}
       <div className="topbar">
-        <Link to="/" className="back-link" title="Tillbaka till projekt">
-          ←
-        </Link>
-        <span className="brand">{project.name}</span>
+        <div className="topbar-row">
+          <Link to="/" className="back-link" title="Tillbaka till projekt">
+            ←
+          </Link>
+          <span className="brand">{project.name}</span>
+          {saveStatus && <span className="save-indicator">{saveStatus}</span>}
 
-        <div className="search-box">
-          <span className="search-icon">🔍</span>
-          <input
-            type="text"
-            placeholder="Sök nyckel eller text..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+          <div className="topbar-spacer" />
+
+          {glossary.length > 0 && (
+            <span className="glossary-badge">📖 {glossary.length} termer</span>
+          )}
+          <button className="action-btn import-btn" onClick={handleImport} disabled={importing}>
+            {importing ? 'Importerar...' : 'Importera'}
+          </button>
+          {manuallyChangedCount > 0 && (
+            <Link to={`/project/${id}/review`} className="action-btn review-btn">
+              Granska ändrade
+            </Link>
+          )}
+          <button
+            className="action-btn ai-btn"
+            onClick={() => setShowAiConfirm(true)}
+            disabled={aiReviewing || translations.length === 0}
+          >
+            {aiReviewing ? '🤖 Granskar...' : '🤖 Granska med AI'}
+          </button>
+          <button
+            className="action-btn download-btn"
+            onClick={handleExportChanged}
+            disabled={translations.length === 0}
+          >
+            Exportera ändrade
+          </button>
+          <ThemeToggle />
         </div>
 
-        <button className="action-btn import-btn" onClick={handleImport} disabled={importing}>
-          {importing ? 'Importerar...' : 'Importera'}
-        </button>
-        {glossary.length > 0 && (
-          <span className="glossary-badge">📖 {glossary.length} termer</span>
-        )}
-        <button
-          className="action-btn ai-btn"
-          onClick={() => setShowAiConfirm(true)}
-          disabled={aiReviewing || translations.length === 0}
-        >
-          {aiReviewing ? '🤖 Granskar...' : '🤖 Granska med AI'}
-        </button>
-        <button
-          className="action-btn download-btn"
-          onClick={handleExportChanged}
-          disabled={translations.length === 0}
-        >
-          Exportera ändrade
-        </button>
-        {manuallyChangedCount > 0 && (
-          <Link to={`/project/${id}/review`} className="action-btn review-btn">
-            Granska ändrade
-          </Link>
-        )}
+        <div className="topbar-row topbar-row-filters">
+          <div className="search-box">
+            <span className="search-icon">🔍</span>
+            <input
+              type="text"
+              placeholder="Sök nyckel, engelsk text eller översättning..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
 
-        {saveStatus && <span className="save-indicator">{saveStatus}</span>}
-        <ThemeToggle />
+          <div className="topbar-spacer" />
 
-        <div className="filter-pills">
-          <button
-            className={`pill ${filter === 'all' ? 'active' : ''}`}
-            onClick={() => setFilter('all')}
-          >
-            Alla ({totalKeys})
-          </button>
-          {aiDone && (
-            <>
-              <button
-                className={`pill pill-approved ${filter === 'ai-approved' ? 'active' : ''}`}
-                onClick={() => setFilter('ai-approved')}
-              >
-                AI godkänd ({categoryCounts.approved})
-              </button>
-              <button
-                className={`pill pill-rejected ${filter === 'ai-rejected' ? 'active' : ''}`}
-                onClick={() => setFilter('ai-rejected')}
-              >
-                Ej godkänd ({categoryCounts.rejected})
-              </button>
-              <button
-                className={`pill pill-manually-approved ${filter === 'ai-rejected-manually-approved' ? 'active' : ''}`}
-                onClick={() => setFilter('ai-rejected-manually-approved')}
-              >
-                Manuellt godkänd ({categoryCounts.manuallyApproved})
-              </button>
-            </>
-          )}
-          {manuallyChangedCount > 0 && (
+          <div className="filter-pills">
             <button
-              className={`pill pill-changed ${filter === 'manually-changed' ? 'active' : ''}`}
-              onClick={() => setFilter('manually-changed')}
+              className={`pill ${filter === 'all' ? 'active' : ''}`}
+              onClick={() => setFilter('all')}
             >
-              Ändrade ({manuallyChangedCount})
+              Alla {totalKeys.toLocaleString('sv-SE')}
             </button>
-          )}
-          {conflictCount > 0 && (
-            <button
-              className={`pill pill-conflict ${filter === 'conflicts' ? 'active' : ''}`}
-              onClick={() => setFilter('conflicts')}
-            >
-              Konflikter ({conflictCount})
-            </button>
-          )}
+            {aiDone && (
+              <>
+                <button
+                  className={`pill pill-approved ${filter === 'ai-approved' ? 'active' : ''}`}
+                  onClick={() => setFilter('ai-approved')}
+                >
+                  AI-godkänd {categoryCounts.approved.toLocaleString('sv-SE')}
+                </button>
+                <button
+                  className={`pill pill-rejected ${filter === 'ai-rejected' ? 'active' : ''}`}
+                  onClick={() => setFilter('ai-rejected')}
+                >
+                  Ej godkänd {categoryCounts.rejected.toLocaleString('sv-SE')}
+                </button>
+                <button
+                  className={`pill pill-manually-approved ${filter === 'ai-rejected-manually-approved' ? 'active' : ''}`}
+                  onClick={() => setFilter('ai-rejected-manually-approved')}
+                >
+                  Manuellt godkänd {categoryCounts.manuallyApproved.toLocaleString('sv-SE')}
+                </button>
+              </>
+            )}
+            {manuallyChangedCount > 0 && (
+              <button
+                className={`pill pill-changed ${filter === 'manually-changed' ? 'active' : ''}`}
+                onClick={() => setFilter('manually-changed')}
+              >
+                Ändrade {manuallyChangedCount}
+              </button>
+            )}
+            {conflictCount > 0 && (
+              <button
+                className={`pill pill-conflict ${filter === 'conflicts' ? 'active' : ''}`}
+                onClick={() => setFilter('conflicts')}
+              >
+                Konflikter {conflictCount}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
