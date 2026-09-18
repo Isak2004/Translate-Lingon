@@ -337,7 +337,7 @@ export function Editor() {
     // Infoga nya nycklar
     for (let i = 0; i < toInsert.length; i += 500) {
       const batch = toInsert.slice(i, i + 500);
-      const { error } = await supabase.from('translations').insert(batch);
+      const { error } = await supabase.from('translations').upsert(batch, { onConflict: 'project_id,key' });
       if (error) throw error;
     }
 
