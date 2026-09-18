@@ -79,7 +79,7 @@ export function Editor() {
   const [aiFindings, setAiFindings] = useState<AiFinding[]>([]);
   const [aiReviewing, setAiReviewing] = useState(false);
   const [aiProgress, setAiProgress] = useState('');
-  const [showAiPanel, setShowAiPanel] = useState(false);
+  const [showAiModal, setShowAiModal] = useState(false);
   const [aiSummary, setAiSummary] = useState<{
     approved: number; rejected: number; manuallyApproved: number;
     total: number; findings: number;
@@ -164,15 +164,6 @@ export function Editor() {
         severity: row.severity,
       }));
       setAiFindings(findings);
-      setShowAiPanel(true);
-
-      const latest = data.reduce((a, b) =>
-        a.created_at > b.created_at ? a : b
-      );
-      const d = new Date(latest.created_at);
-      const dateStr = d.toLocaleDateString('sv-SE') + ' ' +
-        d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
-      setAiProgress(`Senaste AI-granskning: ${dateStr} — ${data.length} problem hittade.`);
     }
   }
 
@@ -534,13 +525,14 @@ export function Editor() {
 
     if (toReview.length === 0) {
       setAiProgress('Alla nycklar är redan AI-granskade.');
-      setShowAiPanel(true);
+      setShowAiModal(true);
       return;
     }
 
     setAiReviewing(true);
+    setShowAiModal(true);
+    setAiSummary(null);
     const existingFindings = [...aiFindings];
-    setShowAiPanel(true);
 
     const BATCH_SIZE = 100;
     const newFindings: AiFinding[] = [];
@@ -985,53 +977,6 @@ export function Editor() {
 
         {/* Content */}
         <div className="content">
-          {/* AI-panel */}
-          {(aiReviewing || aiFindings.length > 0 || aiDone) && showAiPanel && (
-            <div className="ai-panel">
-              <div className="ai-panel-header">
-                <span className="ai-panel-title">🤖 AI-granskning</span>
-                {glossary.length > 0 && (
-                  <span className="ai-glossary-badge">📖 {glossary.length} termer</span>
-                )}
-                <span className="ai-panel-status">{aiProgress}</span>
-                {!aiReviewing && (
-                  <button
-                    className="ai-panel-close"
-                    onClick={() => setShowAiPanel(false)}
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-              {aiReviewing && (
-                <div className="ai-progress-bar">
-                  <div className="ai-progress-bar-fill" />
-                </div>
-              )}
-              {aiDone && categoryCounts.rejected > 0 && (
-                <div className="ai-panel-summary">
-                  <span className="ai-count" style={{ color: 'var(--sage)' }}>
-                    ✅ {categoryCounts.approved} godkända
-                  </span>
-                  <span className="ai-count" style={{ color: 'var(--berry)' }}>
-                    ❌ {categoryCounts.rejected} ej godkända
-                  </span>
-                  {categoryCounts.manuallyApproved > 0 && (
-                    <span className="ai-count" style={{ color: 'var(--amber)' }}>
-                      ✋ {categoryCounts.manuallyApproved} manuellt godkända
-                    </span>
-                  )}
-                  <button
-                    className="pill pill-rejected"
-                    onClick={() => setFilter('ai-rejected')}
-                  >
-                    Visa ej godkända
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
           {filteredTranslations.length === 0 ? (
             <div className="no-results">
               {translations.length === 0
@@ -1128,52 +1073,86 @@ export function Editor() {
         </div>
       )}
 
-      {/* AI-sammanfattning */}
-      {aiSummary && (
-        <div className="modal-backdrop" onClick={() => setAiSummary(null)}>
+      {/* AI-modal (progress + resultat) */}
+      {showAiModal && (
+        <div className="modal-backdrop" onClick={aiReviewing ? undefined : () => { setShowAiModal(false); setAiSummary(null); }}>
           <div
             className="modal"
             onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: 420 }}
+            style={{ maxWidth: 460 }}
           >
             <div className="modal-header">
-              <h2>AI-granskning klar!</h2>
-              <button className="modal-close" onClick={() => setAiSummary(null)}>
-                ✕
-              </button>
+              <h2>{aiReviewing ? '🤖 AI-granskning pågår' : aiSummary ? '🤖 AI-granskning klar!' : '🤖 AI-granskning'}</h2>
+              {!aiReviewing && (
+                <button className="modal-close" onClick={() => { setShowAiModal(false); setAiSummary(null); }}>
+                  ✕
+                </button>
+              )}
             </div>
             <div className="modal-body">
-              <p style={{ margin: '0 0 12px', fontWeight: 600 }}>
-                {aiSummary.total} texter analyserade:
-              </p>
-              <ul style={{ margin: '0 0 16px', paddingLeft: 20, lineHeight: 1.8 }}>
-                <li style={{ color: 'var(--sage)' }}>
-                  ✅ {aiSummary.approved} AI-godkända
-                </li>
-                <li style={{ color: 'var(--berry)' }}>
-                  ❌ {aiSummary.rejected} behöver granskas
-                </li>
-                {aiSummary.manuallyApproved > 0 && (
-                  <li style={{ color: 'var(--amber)' }}>
-                    ✋ {aiSummary.manuallyApproved} tidigare manuellt godkända
-                  </li>
-                )}
-              </ul>
-              {aiSummary.findings > 0 && (
-                <p style={{ margin: '0 0 16px', color: 'var(--muted)', fontSize: 13 }}>
-                  AI hittade {aiSummary.findings} problem i texterna.
-                </p>
+              {aiReviewing ? (
+                <div style={{ textAlign: 'center', padding: '24px 0' }}>
+                  <div className="spinner" />
+                  <p style={{ margin: '16px 0 0', color: 'var(--muted)' }}>{aiProgress}</p>
+                </div>
+              ) : aiSummary ? (
+                <>
+                  <p style={{ margin: '0 0 12px', fontWeight: 600 }}>
+                    {aiSummary.total} texter analyserade:
+                  </p>
+                  <ul style={{ margin: '0 0 16px', paddingLeft: 20, lineHeight: 1.8 }}>
+                    <li style={{ color: 'var(--sage)' }}>
+                      ✅ {aiSummary.approved} AI-godkända
+                    </li>
+                    <li style={{ color: 'var(--berry)' }}>
+                      ❌ {aiSummary.rejected} behöver granskas
+                    </li>
+                    {aiSummary.manuallyApproved > 0 && (
+                      <li style={{ color: 'var(--amber)' }}>
+                        ✋ {aiSummary.manuallyApproved} tidigare manuellt godkända
+                      </li>
+                    )}
+                  </ul>
+                  {aiSummary.findings > 0 && (
+                    <p style={{ margin: '0 0 16px', color: 'var(--muted)', fontSize: 13 }}>
+                      AI hittade {aiSummary.findings} problem i texterna.
+                    </p>
+                  )}
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button
+                      className="action-btn"
+                      style={{ flex: 1, padding: '10px', justifyContent: 'center', background: 'var(--panel-2)', color: 'var(--ink)' }}
+                      onClick={() => { setShowAiModal(false); setAiSummary(null); }}
+                    >
+                      Stäng
+                    </button>
+                    {aiSummary.rejected > 0 && (
+                      <button
+                        className="action-btn ai-btn"
+                        style={{ flex: 1, padding: '10px', justifyContent: 'center' }}
+                        onClick={() => {
+                          setShowAiModal(false);
+                          setAiSummary(null);
+                          setFilter('ai-rejected');
+                        }}
+                      >
+                        Visa ej godkända
+                      </button>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                  <p style={{ margin: '0 0 16px' }}>{aiProgress}</p>
+                  <button
+                    className="action-btn"
+                    style={{ padding: '10px 24px', background: 'var(--panel-2)', color: 'var(--ink)' }}
+                    onClick={() => { setShowAiModal(false); setAiSummary(null); }}
+                  >
+                    OK
+                  </button>
+                </div>
               )}
-              <button
-                className="action-btn pill-rejected"
-                style={{ width: '100%', padding: '10px', justifyContent: 'center' }}
-                onClick={() => {
-                  setAiSummary(null);
-                  setFilter('ai-rejected');
-                }}
-              >
-                Visa ej godkända
-              </button>
             </div>
           </div>
         </div>
