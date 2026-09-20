@@ -55,7 +55,7 @@ function getCategory(
 
 interface Section { key: string; count: number; }
 
-type Filter = 'all' | 'ai-approved' | 'ai-rejected' | 'ai-rejected-manually-approved' | 'manually-changed' | 'conflicts';
+type Filter = 'all' | 'ai-approved' | 'ai-rejected' | 'ai-rejected-manually-approved' | 'manually-changed';
 
 export function Editor() {
   const { id } = useParams<{ id: string }>();
@@ -297,6 +297,8 @@ export function Editor() {
     }[] = [];
     const toUpdate: { id: string; fields: Record<string, unknown> }[] = [];
 
+    const keysWithChangedText: string[] = [];
+
     for (const key of allKeys) {
       const existing = existingByKey.get(key);
       const newSourceText = enFlat[key] ?? '';
@@ -322,26 +324,23 @@ export function Editor() {
         const importTextChanged =
           newTargetText !== existing.imported_target_text;
 
-        if (userHasEdited && importTextChanged) {
-          fields.has_conflict = true;
-        } else if (!userHasEdited && importTextChanged) {
+        if (!userHasEdited && importTextChanged) {
           fields.target_text = newTargetText;
-          fields.has_conflict = false;
-        } else {
-          fields.has_conflict = false;
+          fields.ai_reviewed_at = null;
+          keysWithChangedText.push(key);
         }
         toUpdate.push({ id: existing.id, fields });
       }
     }
 
-    // Infoga nya nycklar
+    // Infoga nya nycklar (ignorera om de redan finns i DB)
     for (let i = 0; i < toInsert.length; i += 500) {
       const batch = toInsert.slice(i, i + 500);
-      const { error } = await supabase.from('translations').upsert(batch, { onConflict: 'project_id,key' });
+      const { error } = await supabase.from('translations').upsert(batch, { onConflict: 'project_id,key', ignoreDuplicates: true });
       if (error) throw error;
     }
 
-    // Uppdatera befintliga (imported_target_text + ev. source_text)
+    // Uppdatera befintliga
     for (let i = 0; i < toUpdate.length; i += 50) {
       const batch = toUpdate.slice(i, i + 50);
       await Promise.all(
@@ -355,30 +354,26 @@ export function Editor() {
       );
     }
 
-    // Ta bort nycklar som inte längre finns i filerna
-    const importedKeySet = new Set(allKeys);
-    const toDelete = translations.filter((t) => !importedKeySet.has(t.key));
-
-    if (toDelete.length > 0) {
-      const deleteIds = toDelete.map((t) => t.id);
-      for (let i = 0; i < deleteIds.length; i += 500) {
-        const batch = deleteIds.slice(i, i + 500);
-        const { error } = await supabase
-          .from('translations')
+    // Ta bort gamla AI-findings för nycklar vars text ändrades
+    if (keysWithChangedText.length > 0) {
+      for (let i = 0; i < keysWithChangedText.length; i += 500) {
+        const batch = keysWithChangedText.slice(i, i + 500);
+        await supabase
+          .from('ai_findings')
           .delete()
-          .in('id', batch);
-        if (error) throw error;
+          .eq('project_id', id!)
+          .in('key', batch);
       }
     }
 
     await loadTranslations();
+    await loadAiFindings();
 
-    const sourceUpdated = toUpdate.filter((u) => u.fields.source_text !== undefined).length;
+    const textUpdated = keysWithChangedText.length;
     const stats: string[] = [];
     if (toInsert.length > 0) stats.push(`${toInsert.length} nya`);
-    if (sourceUpdated > 0) stats.push(`${sourceUpdated} uppdaterade`);
-    if (toDelete.length > 0) stats.push(`${toDelete.length} borttagna`);
-    const unchanged = allKeys.length - toInsert.length - sourceUpdated;
+    if (textUpdated > 0) stats.push(`${textUpdated} uppdaterade`);
+    const unchanged = allKeys.length - toInsert.length - textUpdated;
     if (unchanged > 0) stats.push(`${unchanged} oförändrade`);
     setSaveStatus(`Import: ${stats.join(', ')}`);
   }
@@ -451,34 +446,6 @@ export function Editor() {
   }, []);
 
   // ── Konflikthantering ──
-
-  const handleResolveConflict = useCallback(async (translationId: string, keepOurs: boolean) => {
-    const t = translationsRef.current.find((tr) => tr.id === translationId);
-    if (!t) return;
-
-    const updates: Record<string, unknown> = { has_conflict: false };
-    if (!keepOurs) {
-      updates.target_text = t.imported_target_text;
-    }
-
-    const { error } = await supabase
-      .from('translations')
-      .update(updates)
-      .eq('id', translationId);
-
-    if (error) {
-      console.error('Kunde inte lösa konflikt:', error);
-      return;
-    }
-
-    setTranslations((prev) =>
-      prev.map((tr) =>
-        tr.id === translationId
-          ? { ...tr, has_conflict: false, ...(keepOurs ? {} : { target_text: t.imported_target_text! }) }
-          : tr
-      )
-    );
-  }, []);
 
   // ── Export av ändrade nycklar ──
 
@@ -744,13 +711,6 @@ export function Editor() {
     return count;
   }, [translations]);
 
-  const conflictCount = useMemo(() => {
-    let count = 0;
-    for (const t of translations) {
-      if (t.has_conflict) count++;
-    }
-    return count;
-  }, [translations]);
 
   // ── Sektioner ──
 
@@ -786,9 +746,7 @@ export function Editor() {
       );
     }
 
-    if (filter === 'conflicts') {
-      items = items.filter((t) => t.has_conflict);
-    } else if (filter === 'manually-changed') {
+    if (filter === 'manually-changed') {
       items = items.filter((t) => t.imported_target_text !== null && t.target_text !== t.imported_target_text && t.target_text);
     } else if (aiDone && filter !== 'all') {
       items = items.filter((t) => categoryMap.get(t.id) === filter);
@@ -932,16 +890,6 @@ export function Editor() {
                 <span className="pill-count">{manuallyChangedCount}</span>
               </button>
             )}
-            {conflictCount > 0 && (
-              <button
-                className={`pill pill-conflict ${filter === 'conflicts' ? 'active' : ''}`}
-                onClick={() => setFilter('conflicts')}
-              >
-                <span className="pill-dot" />
-                <span>Konflikter</span>
-                <span className="pill-count">{conflictCount}</span>
-              </button>
-            )}
           </div>
         </div>
       </div>
@@ -994,7 +942,6 @@ export function Editor() {
                   hasHistory={true}
                   onSave={handleSave}
                   onToggleApproved={handleToggleApproved}
-                  onResolveConflict={handleResolveConflict}
                   onShowHistory={() => {
                     setHistoryKey(t.key);
                     setHistoryTranslationId(t.id);

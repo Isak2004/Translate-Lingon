@@ -9,7 +9,6 @@ interface Props {
   onSave: (id: string, oldText: string, newText: string) => void;
   onToggleApproved: (id: string) => void;
   onShowHistory: () => void;
-  onResolveConflict?: (id: string, keepOurs: boolean) => void;
 }
 
 export const TranslationRow = memo(function TranslationRow({
@@ -20,7 +19,6 @@ export const TranslationRow = memo(function TranslationRow({
   onSave,
   onToggleApproved,
   onShowHistory,
-  onResolveConflict,
 }: Props) {
   const [localText, setLocalText] = useState(t.target_text);
   const [saving, setSaving] = useState(false);
@@ -146,29 +144,6 @@ export const TranslationRow = memo(function TranslationRow({
               )}
             </div>
           ))}
-        </div>
-      )}
-      {t.has_conflict && onResolveConflict && (
-        <div className="conflict-panel">
-          <div className="conflict-header">Konflikt — texten ändrades i båda systemen</div>
-          <div className="conflict-texts">
-            <div className="conflict-text-block">
-              <span className="conflict-label">Vår text (manuell)</span>
-              <div className="conflict-value">{t.target_text}</div>
-            </div>
-            <div className="conflict-text-block">
-              <span className="conflict-label">Importerad text (PDH)</span>
-              <div className="conflict-value">{t.imported_target_text}</div>
-            </div>
-          </div>
-          <div className="conflict-actions">
-            <button className="conflict-btn conflict-keep" onClick={() => onResolveConflict(t.id, true)}>
-              Behåll vår
-            </button>
-            <button className="conflict-btn conflict-take" onClick={() => onResolveConflict(t.id, false)}>
-              Ta importerad
-            </button>
-          </div>
         </div>
       )}
     </div>

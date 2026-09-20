@@ -18,7 +18,6 @@ export interface Translation {
   manually_approved_text: string | null;
   imported_target_text: string | null;
   ai_reviewed_at: string | null;
-  has_conflict: boolean;
   created_at: string;
   updated_at: string;
 }
