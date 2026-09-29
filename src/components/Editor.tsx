@@ -94,6 +94,11 @@ export function Editor() {
 
   const [saveStatus, setSaveStatus] = useState('');
   const [showAiConfirm, setShowAiConfirm] = useState(false);
+  const [importSummary, setImportSummary] = useState<{
+    newKeys: number; updated: number; unchanged: number;
+    glossaryInserted: number; glossaryUpdated: number; glossaryUnchanged: number;
+    glossaryTotal: number; termCount: number;
+  } | null>(null);
 
   // ── Ladda projekt och översättningar ──
 
@@ -261,17 +266,27 @@ export function Editor() {
     setImporting(true);
 
     try {
-      await importFiles(enFile, svFile);
+      const stats = await importFiles(enFile, svFile);
 
+      let gInserted = 0, gUpdated = 0, gUnchanged = 0, gTotal = 0;
       if (glossaryFile) {
         const gStats = await importGlossaryFromFile(glossaryFile);
-        const parts: string[] = [];
-        if (gStats.inserted > 0) parts.push(`${gStats.inserted} nya`);
-        if (gStats.updated > 0) parts.push(`${gStats.updated} uppdaterade`);
-        const unchanged = gStats.total - gStats.inserted - gStats.updated;
-        if (unchanged > 0) parts.push(`${unchanged} oförändrade`);
-        setSaveStatus((prev) => prev + ` | Ordlista: ${parts.join(', ')}`);
+        gInserted = gStats.inserted;
+        gUpdated = gStats.updated;
+        gUnchanged = gStats.total - gStats.inserted - gStats.updated;
+        gTotal = gStats.total;
       }
+
+      setImportSummary({
+        newKeys: stats.newKeys,
+        updated: stats.updated,
+        unchanged: stats.unchanged,
+        glossaryInserted: gInserted,
+        glossaryUpdated: gUpdated,
+        glossaryUnchanged: gUnchanged,
+        glossaryTotal: gTotal,
+        termCount: glossary.length,
+      });
     } catch (err) {
       alert('Import misslyckades: ' + (err as Error).message);
     }
@@ -369,13 +384,11 @@ export function Editor() {
     await loadTranslations();
     await loadAiFindings();
 
-    const textUpdated = keysWithChangedText.length;
-    const stats: string[] = [];
-    if (toInsert.length > 0) stats.push(`${toInsert.length} nya`);
-    if (textUpdated > 0) stats.push(`${textUpdated} uppdaterade`);
-    const unchanged = allKeys.length - toInsert.length - textUpdated;
-    if (unchanged > 0) stats.push(`${unchanged} oförändrade`);
-    setSaveStatus(`Import: ${stats.join(', ')}`);
+    return {
+      newKeys: toInsert.length,
+      updated: keysWithChangedText.length,
+      unchanged: allKeys.length - toInsert.length - keysWithChangedText.length,
+    };
   }
 
   // ── Spara en översättning (= manuellt godkänd) ──
@@ -803,9 +816,6 @@ export function Editor() {
 
           <div className="topbar-spacer" />
 
-          {glossary.length > 0 && (
-            <span className="glossary-badge">📖 {glossary.length} termer</span>
-          )}
           <button className="action-btn import-btn" onClick={handleImport} disabled={importing}>
             {importing ? 'Importerar...' : 'Importera'}
           </button>
@@ -842,8 +852,6 @@ export function Editor() {
             />
           </div>
 
-          <div className="topbar-spacer" />
-
           <div className="filter-pills">
             <button
               className={`pill ${filter === 'all' ? 'active' : ''}`}
@@ -852,44 +860,38 @@ export function Editor() {
               <span>Alla</span>
               <span className="pill-count">{totalKeys.toLocaleString('sv-SE')}</span>
             </button>
-            {aiDone && (
-              <>
-                <button
-                  className={`pill pill-approved ${filter === 'ai-approved' ? 'active' : ''}`}
-                  onClick={() => setFilter('ai-approved')}
-                >
-                  <span className="pill-dot" />
-                  <span>AI-godkänd</span>
-                  <span className="pill-count">{categoryCounts.approved.toLocaleString('sv-SE')}</span>
-                </button>
-                <button
-                  className={`pill pill-rejected ${filter === 'ai-rejected' ? 'active' : ''}`}
-                  onClick={() => setFilter('ai-rejected')}
-                >
-                  <span className="pill-dot" />
-                  <span>Ej godkänd</span>
-                  <span className="pill-count">{categoryCounts.rejected.toLocaleString('sv-SE')}</span>
-                </button>
-                <button
-                  className={`pill pill-manually-approved ${filter === 'ai-rejected-manually-approved' ? 'active' : ''}`}
-                  onClick={() => setFilter('ai-rejected-manually-approved')}
-                >
-                  <span className="pill-dot" />
-                  <span>Manuellt godkänd</span>
-                  <span className="pill-count">{categoryCounts.manuallyApproved.toLocaleString('sv-SE')}</span>
-                </button>
-              </>
-            )}
-            {manuallyChangedCount > 0 && (
-              <button
-                className={`pill pill-changed ${filter === 'manually-changed' ? 'active' : ''}`}
-                onClick={() => setFilter('manually-changed')}
-              >
-                <span className="pill-dot" />
-                <span>Ändrade</span>
-                <span className="pill-count">{manuallyChangedCount}</span>
-              </button>
-            )}
+            <button
+              className={`pill pill-approved ${filter === 'ai-approved' ? 'active' : ''}`}
+              onClick={() => setFilter('ai-approved')}
+            >
+              <span className="pill-dot" />
+              <span>AI-godkänd</span>
+              <span className="pill-count">{categoryCounts.approved.toLocaleString('sv-SE')}</span>
+            </button>
+            <button
+              className={`pill pill-rejected ${filter === 'ai-rejected' ? 'active' : ''}`}
+              onClick={() => setFilter('ai-rejected')}
+            >
+              <span className="pill-dot" />
+              <span>Ej godkänd</span>
+              <span className="pill-count">{categoryCounts.rejected.toLocaleString('sv-SE')}</span>
+            </button>
+            <button
+              className={`pill pill-manually-approved ${filter === 'ai-rejected-manually-approved' ? 'active' : ''}`}
+              onClick={() => setFilter('ai-rejected-manually-approved')}
+            >
+              <span className="pill-dot" />
+              <span>Manuellt godkänd</span>
+              <span className="pill-count">{categoryCounts.manuallyApproved.toLocaleString('sv-SE')}</span>
+            </button>
+            <button
+              className={`pill pill-changed ${filter === 'manually-changed' ? 'active' : ''}`}
+              onClick={() => setFilter('manually-changed')}
+            >
+              <span className="pill-dot" />
+              <span>Ändrade</span>
+              <span className="pill-count">{manuallyChangedCount}</span>
+            </button>
           </div>
         </div>
       </div>
@@ -1061,8 +1063,13 @@ export function Editor() {
                     )}
                   </ul>
                   {aiSummary.findings > 0 && (
-                    <p style={{ margin: '0 0 16px', color: 'var(--muted)', fontSize: 13 }}>
+                    <p style={{ margin: '0 0 8px', color: 'var(--muted)', fontSize: 13 }}>
                       AI hittade {aiSummary.findings} problem i texterna.
+                    </p>
+                  )}
+                  {glossary.length > 0 && (
+                    <p style={{ margin: '0 0 16px', color: 'var(--muted)', fontSize: 13 }}>
+                      📖 {glossary.length} ordlistetermer användes vid granskningen.
                     </p>
                   )}
                   <div style={{ display: 'flex', gap: 10 }}>
@@ -1111,6 +1118,54 @@ export function Editor() {
           <div className="loading-box">
             <div className="spinner" />
             <p>Importerar översättningar...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Importstatistik */}
+      {importSummary && (
+        <div className="modal-backdrop" onClick={() => setImportSummary(null)}>
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 420 }}
+          >
+            <div className="modal-header">
+              <h2>Import klar</h2>
+              <button className="modal-close" onClick={() => setImportSummary(null)}>
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <p style={{ margin: '0 0 12px', fontWeight: 600 }}>Översättningar:</p>
+              <ul style={{ margin: '0 0 16px', paddingLeft: 20, lineHeight: 1.8 }}>
+                <li>{importSummary.newKeys} nya nycklar</li>
+                <li>{importSummary.updated} uppdaterade (AI-status nollställd)</li>
+                <li>{importSummary.unchanged} oförändrade</li>
+              </ul>
+              {importSummary.glossaryTotal > 0 && (
+                <>
+                  <p style={{ margin: '0 0 12px', fontWeight: 600 }}>Ordlista:</p>
+                  <ul style={{ margin: '0 0 16px', paddingLeft: 20, lineHeight: 1.8 }}>
+                    <li>{importSummary.glossaryInserted} nya termer</li>
+                    <li>{importSummary.glossaryUpdated} uppdaterade</li>
+                    <li>{importSummary.glossaryUnchanged} oförändrade</li>
+                  </ul>
+                </>
+              )}
+              {importSummary.termCount > 0 && (
+                <p style={{ margin: '0 0 16px', color: 'var(--muted)', fontSize: 13 }}>
+                  📖 {importSummary.termCount} ordlistetermer totalt.
+                </p>
+              )}
+              <button
+                className="action-btn"
+                style={{ width: '100%', padding: '10px', justifyContent: 'center', background: 'var(--panel-2)', color: 'var(--ink)' }}
+                onClick={() => setImportSummary(null)}
+              >
+                OK
+              </button>
+            </div>
           </div>
         </div>
       )}

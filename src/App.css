@@ -243,7 +243,7 @@ a:hover { text-decoration: underline; }
 .back-link:hover { background: var(--panel); color: var(--ink); text-decoration: none; }
 .brand { font-weight: 600; font-size: 14px; white-space: nowrap; color: var(--ink); }
 
-.search-box { width: 340px; flex-shrink: 0; position: relative; }
+.search-box { width: 680px; flex-shrink: 1; min-width: 200px; position: relative; }
 .search-box input {
   width: 100%;
   padding: 6px 12px 6px 32px;
