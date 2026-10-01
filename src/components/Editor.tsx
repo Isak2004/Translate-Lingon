@@ -36,6 +36,12 @@ const EXPORT_FORMAT = 'translate-lingon/v1';
 
 interface ExportEntry { en: string; src: string; sv: string; }
 
+// ── Engelskan ändrad efter manuell text/godkännande ──
+
+function isSourceChanged(t: Translation): boolean {
+  return t.edited_source_text !== null && t.edited_source_text !== t.source_text;
+}
+
 // ── Kategori-helper ──
 
 function getCategory(
@@ -56,7 +62,7 @@ function getCategory(
 
 interface Section { key: string; count: number; }
 
-type Filter = 'all' | 'ai-approved' | 'ai-rejected' | 'ai-rejected-manually-approved' | 'manually-changed';
+type Filter = 'all' | 'ai-approved' | 'ai-rejected' | 'ai-rejected-manually-approved' | 'manually-changed' | 'source-changed';
 
 export function Editor() {
   const { id } = useParams<{ id: string }>();
@@ -314,6 +320,8 @@ export function Editor() {
     const toUpdate: { id: string; fields: Record<string, unknown> }[] = [];
 
     const keysWithChangedText: string[] = [];
+    // Nycklar vars AI-granskning blivit inaktuell (svenskan eller engelskan ändrad)
+    const keysToResetAi = new Set<string>();
 
     for (const key of allKeys) {
       const existing = existingByKey.get(key);
@@ -334,6 +342,8 @@ export function Editor() {
         };
         if (existing.source_text !== newSourceText) {
           fields.source_text = newSourceText;
+          fields.ai_reviewed_at = null;
+          keysToResetAi.add(key);
         }
         const userHasEdited =
           existing.target_text !== existing.imported_target_text;
@@ -344,6 +354,7 @@ export function Editor() {
           fields.target_text = newTargetText;
           fields.ai_reviewed_at = null;
           keysWithChangedText.push(key);
+          keysToResetAi.add(key);
         }
         toUpdate.push({ id: existing.id, fields });
       }
@@ -370,10 +381,11 @@ export function Editor() {
       );
     }
 
-    // Ta bort gamla AI-findings för nycklar vars text ändrades
-    if (keysWithChangedText.length > 0) {
-      for (let i = 0; i < keysWithChangedText.length; i += 500) {
-        const batch = keysWithChangedText.slice(i, i + 500);
+    // Ta bort gamla AI-findings för nycklar vars svenska eller engelska ändrades
+    const resetKeys = [...keysToResetAi];
+    if (resetKeys.length > 0) {
+      for (let i = 0; i < resetKeys.length; i += 500) {
+        const batch = resetKeys.slice(i, i + 500);
         await supabase
           .from('ai_findings')
           .delete()
@@ -399,9 +411,11 @@ export function Editor() {
 
     setSaveStatus('Sparar...');
 
+    const sourceText = translationsRef.current.find((tr) => tr.id === translationId)?.source_text ?? null;
+
     const { error: updateError } = await supabase
       .from('translations')
-      .update({ target_text: newText, manually_approved_text: newText })
+      .update({ target_text: newText, manually_approved_text: newText, edited_source_text: sourceText })
       .eq('id', translationId);
 
     if (updateError) {
@@ -421,7 +435,7 @@ export function Editor() {
     setTranslations((prev) =>
       prev.map((t) =>
         t.id === translationId
-          ? { ...t, target_text: newText, manually_approved_text: newText }
+          ? { ...t, target_text: newText, manually_approved_text: newText, edited_source_text: sourceText }
           : t
       )
     );
@@ -441,10 +455,13 @@ export function Editor() {
 
     const isApproved = t.manually_approved_text === t.target_text;
     const newApprovedText = isApproved ? null : t.target_text;
+    // Ett godkännande gäller den engelska som visas just nu
+    const fields: Partial<Translation> = { manually_approved_text: newApprovedText };
+    if (!isApproved) fields.edited_source_text = t.source_text;
 
     const { error } = await supabase
       .from('translations')
-      .update({ manually_approved_text: newApprovedText })
+      .update(fields)
       .eq('id', translationId);
 
     if (error) {
@@ -454,12 +471,76 @@ export function Editor() {
 
     setTranslations((prev) =>
       prev.map((tr) =>
-        tr.id === translationId ? { ...tr, manually_approved_text: newApprovedText } : tr
+        tr.id === translationId ? { ...tr, ...fields } : tr
       )
     );
   }, []);
 
-  // ── Konflikthantering ──
+  // ── Engelskan ändrad: behåll vår text eller ta PDH:s ──
+
+  const handleKeepMine = useCallback(async (translationId: string) => {
+    const t = translationsRef.current.find((tr) => tr.id === translationId);
+    if (!t) return;
+
+    const { error } = await supabase
+      .from('translations')
+      .update({ edited_source_text: t.source_text })
+      .eq('id', translationId);
+
+    if (error) {
+      console.error('Kunde inte behålla text:', error);
+      return;
+    }
+
+    setTranslations((prev) =>
+      prev.map((tr) =>
+        tr.id === translationId ? { ...tr, edited_source_text: t.source_text } : tr
+      )
+    );
+  }, []);
+
+  const handleUsePdh = useCallback(async (translationId: string) => {
+    const t = translationsRef.current.find((tr) => tr.id === translationId);
+    if (!t || t.imported_target_text === null) return;
+
+    const fields = {
+      target_text: t.imported_target_text,
+      manually_approved_text: null,
+      edited_source_text: null,
+      ai_reviewed_at: null,
+    };
+
+    const { error } = await supabase
+      .from('translations')
+      .update(fields)
+      .eq('id', translationId);
+
+    if (error) {
+      console.error('Kunde inte återställa till PDH:s text:', error);
+      return;
+    }
+
+    await supabase
+      .from('ai_findings')
+      .delete()
+      .eq('project_id', t.project_id)
+      .eq('key', t.key);
+
+    if (t.target_text !== t.imported_target_text) {
+      await supabase.from('translation_history').insert({
+        translation_id: translationId,
+        old_text: t.target_text,
+        new_text: t.imported_target_text,
+        changed_by: 'anonymous',
+        change_type: 'edit',
+      });
+    }
+
+    setTranslations((prev) =>
+      prev.map((tr) => (tr.id === translationId ? { ...tr, ...fields } : tr))
+    );
+    setAiFindings((prev) => prev.filter((f) => f.key !== t.key));
+  }, []);
 
   // ── Export av ändrade nycklar ──
 
@@ -471,9 +552,16 @@ export function Editor() {
       .filter((t) => t.imported_target_text !== null && t.target_text !== t.imported_target_text)
       .sort((a, b) => a.key.localeCompare(b.key));
 
+    let sourceChangedCount = 0;
+
     for (const t of changed) {
       if (!t.target_text) {
         emptyCount++;
+        continue;
+      }
+      // Engelskan har ändrats efter vår text — måste granskas innan export
+      if (isSourceChanged(t)) {
+        sourceChangedCount++;
         continue;
       }
       keys[t.key] = {
@@ -485,6 +573,12 @@ export function Editor() {
 
     if (emptyCount > 0) {
       alert(`Varning: ${emptyCount} ändrade nycklar hoppades över för att de har tom text.`);
+    }
+    if (sourceChangedCount > 0) {
+      alert(
+        `Varning: ${sourceChangedCount} ändrade nycklar hoppades över för att engelskan har ändrats i PDH. ` +
+        `Granska dem under filtret "Engelska ändrad" och exportera igen.`
+      );
     }
 
     if (Object.keys(keys).length === 0) {
@@ -737,6 +831,11 @@ export function Editor() {
     return count;
   }, [translations]);
 
+  const sourceChangedCount = useMemo(
+    () => translations.filter(isSourceChanged).length,
+    [translations]
+  );
+
 
   // ── Sektioner ──
 
@@ -774,6 +873,8 @@ export function Editor() {
 
     if (filter === 'manually-changed') {
       items = items.filter((t) => t.imported_target_text !== null && t.target_text !== t.imported_target_text && t.target_text);
+    } else if (filter === 'source-changed') {
+      items = items.filter(isSourceChanged);
     } else if (aiDone && filter !== 'all') {
       items = items.filter((t) => categoryMap.get(t.id) === filter);
     }
@@ -905,6 +1006,16 @@ export function Editor() {
               <span>Ändrade</span>
               <span className="pill-count">{manuallyChangedCount}</span>
             </button>
+            {(sourceChangedCount > 0 || filter === 'source-changed') && (
+              <button
+                className={`pill pill-conflict ${filter === 'source-changed' ? 'active' : ''}`}
+                onClick={() => setFilter('source-changed')}
+              >
+                <span className="pill-dot" />
+                <span>Engelska ändrad</span>
+                <span className="pill-count">{sourceChangedCount}</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -957,6 +1068,9 @@ export function Editor() {
                   hasHistory={true}
                   onSave={handleSave}
                   onToggleApproved={handleToggleApproved}
+                  sourceChanged={isSourceChanged(t)}
+                  onKeepMine={handleKeepMine}
+                  onUsePdh={handleUsePdh}
                   onShowHistory={() => {
                     setHistoryKey(t.key);
                     setHistoryTranslationId(t.id);

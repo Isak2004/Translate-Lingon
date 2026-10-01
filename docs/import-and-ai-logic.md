@@ -30,3 +30,25 @@ När en import uppdaterar `target_text` nollställs `ai_reviewed_at` och gamla f
 
 ### Idempotens
 Kan köras flera gånger utan problem. Redan granskade nycklar hoppas över.
+
+## Engelskan ändrad i PDH
+
+### Spårning
+`edited_source_text` sparar vilken engelska (`source_text`) en manuell text gjordes mot. Den sätts när användaren sparar en text eller godkänner den manuellt.
+
+### Vid import
+Om PDH:s engelska för en nyckel har ändrats uppdateras `source_text`. Den manuella svenskan rörs inte, men AI-status nollställs och gamla findings tas bort. Nyckeln räknas som "engelska ändrad" så länge `edited_source_text` skiljer sig från `source_text`.
+
+### I gränssnittet
+Filtret "Engelska ändrad" visar dessa nycklar. Raden visar tidigare och nuvarande engelska, din svenska och PDH:s svenska, med två val:
+- **Behåll min text** — texten gäller även den nya engelskan (`edited_source_text` sätts till nuvarande engelska).
+- **Använd PDH:s text** — svenskan återställs till den importerade texten och räknas inte längre som ändrad.
+
+Att redigera och spara texten löser också flaggan.
+
+### Vid export
+Nycklar med ändrad engelska hoppas över, med en varning. Annars skulle en svensk text skriven för gammal engelska skickas till PDH med den nya engelskans hash och passera PDH:s kontroll.
+
+## Exportformat
+
+"Exportera ändrade" skriver `sv-changes.json` i formatet `translate-lingon/v1`: en platt map nyckel → `{ en, src, sv }` där `src` är sha256 av engelskan (12 första hex-tecknen, samma som PDH:s `source_hash`). Bara ändrade, icke-tomma texter tas med.

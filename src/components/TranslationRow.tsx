@@ -8,6 +8,9 @@ interface Props {
   hasHistory: boolean;
   onSave: (id: string, oldText: string, newText: string) => void;
   onToggleApproved: (id: string) => void;
+  sourceChanged: boolean;
+  onKeepMine: (id: string) => void;
+  onUsePdh: (id: string) => void;
   onShowHistory: () => void;
 }
 
@@ -18,6 +21,9 @@ export const TranslationRow = memo(function TranslationRow({
   hasHistory,
   onSave,
   onToggleApproved,
+  sourceChanged,
+  onKeepMine,
+  onUsePdh,
   onShowHistory,
 }: Props) {
   const [localText, setLocalText] = useState(t.target_text);
@@ -132,6 +138,39 @@ export const TranslationRow = memo(function TranslationRow({
           </button>
         </div>
       </div>
+      {sourceChanged && (
+        <div className="conflict-panel">
+          <div className="conflict-header">
+            Engelskan har ändrats i PDH efter din text — granska innan export
+          </div>
+          <div className="conflict-texts">
+            <div className="conflict-text-block">
+              <span className="conflict-label">Engelska när du ändrade</span>
+              <div className="conflict-value">{t.edited_source_text}</div>
+            </div>
+            <div className="conflict-text-block">
+              <span className="conflict-label">Engelska nu</span>
+              <div className="conflict-value">{t.source_text}</div>
+            </div>
+            <div className="conflict-text-block">
+              <span className="conflict-label">Din svenska</span>
+              <div className="conflict-value">{t.target_text}</div>
+            </div>
+            <div className="conflict-text-block">
+              <span className="conflict-label">PDH:s svenska</span>
+              <div className="conflict-value">{t.imported_target_text}</div>
+            </div>
+          </div>
+          <div className="conflict-actions">
+            <button className="conflict-btn conflict-keep" onClick={() => onKeepMine(t.id)}>
+              Behåll min text
+            </button>
+            <button className="conflict-btn conflict-take" onClick={() => onUsePdh(t.id)}>
+              Använd PDH:s text
+            </button>
+          </div>
+        </div>
+      )}
       {hasAiFlag && (
         <div className="ai-findings">
           {aiFindings!.map((f, i) => (
