@@ -21,19 +21,20 @@ function flatten(obj: Record<string, unknown>, prefix = ''): FlatMap {
   return result;
 }
 
-function unflatten(flat: FlatMap): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  for (const key of Object.keys(flat).sort()) {
-    const parts = key.split('.');
-    let cur = result as Record<string, unknown>;
-    for (let i = 0; i < parts.length - 1; i++) {
-      if (!(parts[i] in cur)) cur[parts[i]] = {};
-      cur = cur[parts[i]] as Record<string, unknown>;
-    }
-    cur[parts[parts.length - 1]] = flat[key];
-  }
-  return result;
+// ── Källhash (samma som PDH:s source_hash: sha256, första 12 hex-tecknen) ──
+
+async function sourceHash(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, 12);
 }
+
+// Exportformatet som PDH läser in. Bumpa versionen vid inkompatibla ändringar.
+const EXPORT_FORMAT = 'translate-lingon/v1';
+
+interface ExportEntry { en: string; src: string; sv: string; }
 
 // ── Kategori-helper ──
 
@@ -462,31 +463,43 @@ export function Editor() {
 
   // ── Export av ändrade nycklar ──
 
-  function handleExportChanged() {
-    const flat: FlatMap = {};
+  async function handleExportChanged() {
+    const keys: Record<string, ExportEntry> = {};
     let emptyCount = 0;
 
-    for (const t of translations) {
-      if (t.imported_target_text === null) continue;
-      if (t.target_text === t.imported_target_text) continue;
+    const changed = translations
+      .filter((t) => t.imported_target_text !== null && t.target_text !== t.imported_target_text)
+      .sort((a, b) => a.key.localeCompare(b.key));
+
+    for (const t of changed) {
       if (!t.target_text) {
         emptyCount++;
         continue;
       }
-      flat[t.key] = t.target_text;
+      keys[t.key] = {
+        en: t.source_text,
+        src: await sourceHash(t.source_text),
+        sv: t.target_text,
+      };
     }
 
     if (emptyCount > 0) {
       alert(`Varning: ${emptyCount} ändrade nycklar hoppades över för att de har tom text.`);
     }
 
-    if (Object.keys(flat).length === 0) {
+    if (Object.keys(keys).length === 0) {
       alert('Inga ändrade texter att exportera.');
       return;
     }
 
-    const nested = unflatten(flat);
-    const json = JSON.stringify(nested, null, 2) + '\n';
+    const payload = {
+      format: EXPORT_FORMAT,
+      source_locale: project?.source_language ?? 'en',
+      locale: project?.target_language ?? 'sv',
+      exported_at: new Date().toISOString(),
+      keys,
+    };
+    const json = JSON.stringify(payload, null, 2) + '\n';
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
