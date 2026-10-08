@@ -49,6 +49,7 @@ texterna. Translate håller själv reda på vad som är granskat och godkänt.
 | D5 | **Ingen branch/commit-stämpel i filen.** Hashen per nyckel fångar den verkliga risken (ändrad engelska). |
 | D6 | **Engelskan skrivs aldrig tillbaka.** Fältet `en` finns i filen för kontroll och för att förbereda en framtida möjlighet att redigera källtext — men PDH läser det inte som en ändring nu. |
 | D7 | **Bara UI-texterna.** E-posttexterna (`notifications/locales`, 82 nycklar) stöds inte av Translate och ligger utanför detta arbete. |
+| D8 | **Translate pushar bara exportfilen; PDH gör själva importen.** Translate committar `sv-changes.json` till en `translate/`-branch i PDH-repot. En GitHub Action i PDH kör importen, committar `sv.json` + sidecar och öppnar PR. Translate skriver aldrig `sv.json` själv — PDH:s import (§5) är enda stället där reglerna finns. |
 
 ---
 
@@ -61,19 +62,26 @@ texterna. Translate håller själv reda på vad som är granskat och godkänt.
    → AI-utkast i sv.json            
  en.json + sv.json  ───import──▶    redigera / godkänn             
  (+ glossary/terms.json)            AI-granskning                  
-                                    "Exportera ändrade"            
-                                      → sv-changes.json ──────▶   import (ny)
+                                    "Skicka till PDH"              
+                                      → sv-changes.json ──push──▶  branch translate/sv
+                                                                    Action: import (ny)
                                                                     → sv.json + sidecar
-                                                                  commit → PR → CI → deploy
+                                                                  PR → granskning → merge → deploy
 ```
 
 1. Utvecklare kör `translate_locale sv` som idag och committar AI-utkasten.
 2. Translate-användaren importerar `en.json` + `sv.json` från PDH `main`.
 3. Användaren granskar och redigerar i Translate. Texter vars engelska ändrats
    i PDH sedan förra importen flaggas och måste lösas först (§6).
-4. Användaren exporterar `sv-changes.json` och lämnar den till PDH-utvecklaren.
-5. PDH-utvecklaren kör den nya importen, granskar diffen, committar och gör PR.
-   CI (`translate_locale sv --check`) körs som vanligt.
+4. Användaren klickar "Skicka till PDH". Translate committar `sv-changes.json`
+   till branchen `translate/sv` i PDH-repot (§9).
+5. En GitHub Action i PDH kör importen på branchen, committar `sv.json` +
+   sidecar, tar bort exportfilen och öppnar (eller uppdaterar) en PR med
+   importrapporten i beskrivningen.
+6. En PDH-utvecklare granskar diffen och mergar. Deploy som vanligt.
+
+"Exportera ändrade" (nedladdning av filen) finns kvar som reserv — filen kan då
+importeras för hand med samma kommando.
 
 ---
 
@@ -172,5 +180,39 @@ kan lita på filen:
   Translate ägs av oss.
 - **Ordlistan går en väg.** Translate läser `terms.json` men skickar inga nya
   termer tillbaka. Termförslag läggs in för hand i PDH som idag.
-- **Manuell import.** Filen lämnas över för hand. En automatisk koppling
-  (API eller automatisk PR) kan byggas senare ovanpå samma format.
+- **En utvecklare måste merga.** Textändringar når inte produktion utan PR-granskning
+  och deploy. Avsiktligt — samma väg som all annan kod.
+
+---
+
+## 9. Överföringen (D8)
+
+**Branch.** En fast branch, `translate/sv`. Finns den inte skapar Translate den
+från `main`. Finns den redan (en tidigare PR är inte mergad) läggs den nya
+exporten som en ny commit på samma branch. Det blir alltså högst en öppen
+översättnings-PR åt gången, och parallella exporter kan inte krocka i `sv.json`.
+När PR:en mergas tas branchen bort som vanligt.
+
+**Filen.** Translate committar exportfilen till `translations/incoming/sv-changes.json`
+i PDH-repot, oförändrat format (§4). Translate rör inga andra filer.
+
+**Actionen** (PDH, triggas av push till `translate/**` som ändrar `translations/incoming/`):
+1. Kör `import_translations translations/incoming/sv-changes.json`.
+2. Tar bort exportfilen. Git-historiken på branchen är loggen.
+3. Committar `sv.json` + `sv.sources.json` till branchen.
+4. Kör `translate_locale sv --check`.
+5. Öppnar PR mot `main`, eller uppdaterar den öppna, med importrapporten
+   (ändrade / oförändrade / vägrade med orsak) i beskrivningen.
+
+Vägrade rader stoppar inte importen (D4) — de syns i PR-beskrivningen, och den
+som arbetar i Translate kan åtgärda dem och skicka igen.
+
+**Behörighet.** Translate pushar med en GitHub App installerad på
+`lingon/product-data-hub` med `contents: write`. Nyckeln ligger på Translates
+serversida (Supabase Edge Function), aldrig i webbläsaren. Appen sätts upp av en
+admin i `lingon`.
+
+**CI på PR:en.** Commits och PR:er som skapas med Actionens inbyggda
+`GITHUB_TOKEN` triggar inte andra workflows — vanlig CI skulle alltså inte köras.
+Actionen ska därför använda en GitHub App-token (samma app eller en egen) när den
+committar och öppnar PR:en.

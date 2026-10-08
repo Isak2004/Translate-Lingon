@@ -5,7 +5,10 @@ kan byggas i PDH. Translate-sidan är redan klar (designdokumentet §6) — den 
 planen gäller bara PDH. Planen är skriven mot `main` @ `a396791` (2026-08-31) —
 kontrollera filnamn och radnummer mot aktuell `main` innan du börjar.
 
-Två PR:er: först det nya (additivt, ingenting går sönder), sedan borttagningen.
+Tre PR:er i PDH: först importkommandot (additivt, ingenting går sönder), sedan
+den automatiska importen via `translate/sv`-branchen (design D8/§9), sist
+borttagningen. Translate behöver en egen ändring för "Skicka till PDH" — se
+sista avsnittet.
 
 ---
 
@@ -56,6 +59,11 @@ rapporten när rad 2 slår till.
 `now`, per vägrad nyckel orsaken. Avsluta med en påminnelse om att committa
 `sv.json` och sidecar-filen tillsammans.
 
+`--report-md <fil>` skriver samma rapport som markdown — används av Actionen i
+PR 2 som PR-beskrivning. Lägg valideringen i en egen funktion (indata: parsad
+fil + locales-katalog, utdata: resultat per rad) så att rapporten i terminal och
+markdown bygger på samma resultat.
+
 **Valfritt:** kör även `translate_locale`s mjuka kontroller (citattecken,
 längdkvot, skriptblandning) på de importerade texterna och visa dem som
 varningar — inte vägran, eftersom en människa har valt texten.
@@ -77,15 +85,59 @@ med flödet från designdokumentet §3.
 
 ---
 
-## PR 2 — Ta bort Excel-rundturen och granskningsstatusen
+## PR 2 — Automatisk import från `translate/sv`
 
-### 2.1 Excel
+Se designdokumentet §9 för vad som är bestämt.
+
+### 2.1 Katalog
+`translations/incoming/` med en `.gitkeep` och en kort `README.md` ("filer här
+skrivs av Translate och tas bort av Actionen — lägg inget här för hand").
+
+### 2.2 Workflow
+**Fil:** `.github/workflows/translate-import.yml`
+
+- Trigger: `push` till `translate/**` med `paths: translations/incoming/**`.
+- `concurrency: translate-import-${{ github.ref }}` så två pushar inte kör samtidigt.
+- Token: GitHub App-token (t.ex. `actions/create-github-app-token`), inte
+  `GITHUB_TOKEN` — annars triggas inte vanlig CI på commit/PR.
+- Python-setup som i `ci.yml` (samma steg som kör `translate_locale --check`).
+- Steg:
+  1. `python manage.py import_translations ../translations/incoming/sv-changes.json --report-md /tmp/report.md`
+     (sökvägen relativt `pdh-django-backend/`).
+  2. `git rm translations/incoming/sv-changes.json`.
+  3. Commit `sv.json` + `sv.sources.json` med meddelande
+     `Import translations from Translate`, push till samma branch.
+  4. `python manage.py translate_locale sv --check`.
+  5. `gh pr view translate/sv` → finns: `gh pr edit --body-file /tmp/report.md`;
+     annars `gh pr create --base main --title "Översättningar från Translate" --body-file /tmp/report.md`.
+- Om importen gav 0 ändrade rader: committa ändå borttagningen av filen, men
+  skapa ingen PR (rapporten syns i Actions-loggen).
+- Om kommandot avbryter på filnivå (`CommandError`): låt jobbet faila. Filen
+  ligger då kvar på branchen så felet går att undersöka.
+
+### 2.3 Repoinställningar (admin i `lingon`)
+- Skapa/installera GitHub App med `contents: write` och `pull_requests: write`
+  på `lingon/product-data-hub`.
+- Lägg appens id + privata nyckel som Actions-secrets för workflowen.
+- Ge Translate samma app (eller en egen med bara `contents: write`).
+- Om `main` har branch protection: inget behöver ändras, PR:en går samma väg
+  som andra.
+
+### 2.4 Test
+Pusha en testfil till `translate/sv` för hand och verifiera att commit och PR
+skapas och att CI körs på PR:en.
+
+---
+
+## PR 3 — Ta bort Excel-rundturen och granskningsstatusen
+
+### 3.1 Excel
 - Ta bort `pdh-django-backend/glossary/review_export.py`.
 - Ta bort `pdh-django-backend/tests/test_review_export.py`.
 - `openpyxl` används även av `orders/` och `articles/importers/` — **behåll
   beroendet**.
 
-### 2.2 Granskningskön
+### 3.2 Granskningskön
 - Ta bort `pdh-django-backend/glossary/management/commands/review_locale.py`.
 - Ta bort `pdh-django-backend/tests/test_review_workflow.py` (eller flytta de
   delar som testar digesten/sidecar till rätt plats om något ska vara kvar).
@@ -93,7 +145,7 @@ med flödet från designdokumentet §3.
   branch"** (≈ rad 152–169). Behåll steget **"i18n delta"** med
   `translate_locale --check`.
 
-### 2.3 Status i sidecar-filen
+### 3.3 Status i sidecar-filen
 I `translate_locale.py`:
 - `_write_sources()`: skriv bara `{"src": ...}` per nyckel. Uppdatera
   `$comment`-texten.
@@ -109,7 +161,7 @@ engångsskript. Committa båda sidecar-filerna.
 
 `load_sources()` behöver ingen ändring — den läser bara `keys`.
 
-### 2.4 Veckodigesten
+### 3.4 Veckodigesten
 - Ta bort `pdh-django-backend/glossary/tasks.py` (`translation_review_digest`).
 - Ta bort `SLACK_DIGEST_WEBHOOK_URL` ur `config/settings.py` (≈ rad 382–391).
 - Ta bort variabeln ur serverns `.env.production` vid nästa deploy (se
@@ -117,14 +169,14 @@ engångsskript. Committa båda sidecar-filerna.
 - Uppdatera `BACKGROUND_JOBS.md` (tabellraden ≈ 373 och listan ≈ 419) och
   `deployment/CLAUDE.md` (≈ rad 121–130).
 
-### 2.5 Dokumentation
+### 3.5 Dokumentation
 - `multilang-build-plan.md`: statustabellen överst (raden "Review (§1.3)") och
   §1.3/§1.4 — markera som ersatta av Translate.
 - `HANDOFF_I18N_EXTRACTION.md`: §0.2 (granskningskön som kritisk väg) och §7
   ("The review bootstrap") — inte längre aktuella.
 - Docstringen i `translate_locale.py` hänvisar till `review_locale` — rensa.
 
-### 2.6 Kontroll innan merge
+### 3.6 Kontroll innan merge
 ```
 grep -rn "review_locale\|review_export\|STATUS_REVIEWED\|STATUS_MACHINE\|translation_review_digest\|SLACK_DIGEST_WEBHOOK_URL" .
 ```
@@ -146,3 +198,27 @@ Ska bara ge träffar i historiska dokument (om några).
 8. (Translates sida, för helhetens skull.) Importera den ändrade `en.json` i
    Translate → nyckeln ska flaggas "Engelska ändrad" och hoppas över vid export
    tills användaren valt "Behåll min text" eller "Använd PDH:s text".
+9. (Efter PR 2.) "Skicka till PDH" i Translate → branchen `translate/sv` får en
+   commit med filen, Actionen ersätter den med `sv.json` + sidecar, PR:en
+   öppnas med rapporten och CI körs. Skicka en gång till → samma PR uppdateras.
+
+---
+
+## Translate — "Skicka till PDH"
+
+Görs i Translate-Lingon, parallellt med PR 2.
+
+- Supabase Edge Function `push-to-pdh`: tar exportfilen (samma innehåll som
+  "Exportera ändrade"), hämtar en installationstoken för GitHub-appen och via
+  GitHub:s REST-API:
+  1. Kollar om `translate/sv` finns; annars skapar den från `main`s HEAD.
+  2. Skriver `translations/incoming/sv-changes.json` på branchen
+     (`PUT /repos/{owner}/{repo}/contents/{path}`, med `sha` om filen redan finns).
+- Appens id och privata nyckel som Edge Function-secrets — aldrig i klienten.
+- Knapp "Skicka till PDH" bredvid "Exportera ändrade". Efter lyckat anrop:
+  visa länk till branchen/PR:en. Samma varning som vid export om rader hoppas
+  över på grund av "Engelska ändrad".
+- Om en tidigare fil ligger kvar på branchen (Actionen har inte hunnit köra eller
+  failade): skriv över den. Exporten jämför mot senast importerade `sv.json`
+  (`target_text !== imported_target_text` i `Editor.tsx`), inte mot förra
+  exporten, så den nya filen innehåller alla ändringar som den gamla hade.
