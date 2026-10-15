@@ -14,6 +14,8 @@ sista avsnittet.
 
 ## PR 1 — Import av Translate-filer
 
+**Byggd:** lingon/product-data-hub#523.
+
 ### 1.1 Nytt management-kommando
 **Fil:** `pdh-django-backend/glossary/management/commands/import_translations.py`
 
@@ -87,6 +89,8 @@ med flödet från designdokumentet §3.
 
 ## PR 2 — Automatisk import från `translate/sv`
 
+**Byggd:** lingon/product-data-hub#525. Tillägg: Actionen mergar `main` in i branchen före importen, och en ny rapport läggs ovanpå de tidigare i en öppen PR.
+
 Se designdokumentet §9 för vad som är bestämt.
 
 ### 2.1 Katalog
@@ -130,6 +134,8 @@ skapas och att CI körs på PR:en.
 ---
 
 ## PR 3 — Ta bort Excel-rundturen och granskningsstatusen
+
+**Byggd:** lingon/product-data-hub#527. Tillägg: `git` togs bort ur dev-Dockerfilen, eftersom bara de borttagna kommandona använde det.
 
 ### 3.1 Excel
 - Ta bort `pdh-django-backend/glossary/review_export.py`.
