@@ -36,6 +36,26 @@ const EXPORT_FORMAT = 'translate-lingon/v1';
 
 interface ExportEntry { en: string; src: string; sv: string; }
 
+interface BuiltExport {
+  payload: {
+    format: string;
+    source_locale: string;
+    locale: string;
+    exported_at: string;
+    keys: Record<string, ExportEntry>;
+  };
+  count: number;
+  emptyCount: number;
+  sourceChangedCount: number;
+}
+
+interface PushResult {
+  count: number;
+  branch: string;
+  branch_url: string;
+  pr_url: string | null;
+}
+
 // ── Engelskan ändrad efter manuell text/godkännande ──
 
 function isSourceChanged(t: Translation): boolean {
@@ -98,6 +118,12 @@ export function Editor() {
   const [enFile, setEnFile] = useState<File | null>(null);
   const [svFile, setSvFile] = useState<File | null>(null);
   const [glossaryFile, setGlossaryFile] = useState<File | null>(null);
+
+  const [showPushModal, setShowPushModal] = useState(false);
+  const [pushExport, setPushExport] = useState<BuiltExport | null>(null);
+  const [pushing, setPushing] = useState(false);
+  const [pushResult, setPushResult] = useState<PushResult | null>(null);
+  const [pushError, setPushError] = useState('');
 
   const [saveStatus, setSaveStatus] = useState('');
   const [showAiConfirm, setShowAiConfirm] = useState(false);
@@ -544,15 +570,17 @@ export function Editor() {
 
   // ── Export av ändrade nycklar ──
 
-  async function handleExportChanged() {
+  // Samma innehåll för nedladdning och "Skicka till PDH". Exporten jämför mot
+  // senast importerade sv.json (imported_target_text), inte mot förra exporten,
+  // så varje export innehåller alla ändringar sedan importen.
+  async function buildExport(): Promise<BuiltExport> {
     const keys: Record<string, ExportEntry> = {};
     let emptyCount = 0;
+    let sourceChangedCount = 0;
 
     const changed = translations
       .filter((t) => t.imported_target_text !== null && t.target_text !== t.imported_target_text)
       .sort((a, b) => a.key.localeCompare(b.key));
-
-    let sourceChangedCount = 0;
 
     for (const t of changed) {
       if (!t.target_text) {
@@ -571,29 +599,44 @@ export function Editor() {
       };
     }
 
-    if (emptyCount > 0) {
-      alert(`Varning: ${emptyCount} ändrade nycklar hoppades över för att de har tom text.`);
+    return {
+      payload: {
+        format: EXPORT_FORMAT,
+        source_locale: project?.source_language ?? 'en',
+        locale: project?.target_language ?? 'sv',
+        exported_at: new Date().toISOString(),
+        keys,
+      },
+      count: Object.keys(keys).length,
+      emptyCount,
+      sourceChangedCount,
+    };
+  }
+
+  function exportWarnings(built: BuiltExport): string[] {
+    const out: string[] = [];
+    if (built.emptyCount > 0) {
+      out.push(`${built.emptyCount} ändrade nycklar hoppades över för att de har tom text.`);
     }
-    if (sourceChangedCount > 0) {
-      alert(
-        `Varning: ${sourceChangedCount} ändrade nycklar hoppades över för att engelskan har ändrats i PDH. ` +
-        `Granska dem under filtret "Engelska ändrad" och exportera igen.`
+    if (built.sourceChangedCount > 0) {
+      out.push(
+        `${built.sourceChangedCount} ändrade nycklar hoppades över för att engelskan har ändrats i PDH. ` +
+        `Granska dem under filtret "Engelska ändrad" och skicka igen.`
       );
     }
+    return out;
+  }
 
-    if (Object.keys(keys).length === 0) {
+  async function handleExportChanged() {
+    const built = await buildExport();
+    for (const w of exportWarnings(built)) alert(`Varning: ${w}`);
+
+    if (built.count === 0) {
       alert('Inga ändrade texter att exportera.');
       return;
     }
 
-    const payload = {
-      format: EXPORT_FORMAT,
-      source_locale: project?.source_language ?? 'en',
-      locale: project?.target_language ?? 'sv',
-      exported_at: new Date().toISOString(),
-      keys,
-    };
-    const json = JSON.stringify(payload, null, 2) + '\n';
+    const json = JSON.stringify(built.payload, null, 2) + '\n';
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -601,6 +644,45 @@ export function Editor() {
     a.download = `${project?.target_language ?? 'sv'}-changes.json`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  // ── Skicka till PDH ──
+  // Funktionen committar bara exportfilen till branchen translate/<locale> i
+  // PDH-repot. Själva importen och kontrollerna görs av PDH (design D8).
+
+  async function handleOpenPush() {
+    setPushError('');
+    setPushResult(null);
+    setPushExport(await buildExport());
+    setShowPushModal(true);
+  }
+
+  async function handleConfirmPush() {
+    if (!pushExport || pushExport.count === 0 || pushing) return;
+    setPushing(true);
+    setPushError('');
+    try {
+      const res = await fetch('/.netlify/functions/push-to-pdh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(pushExport.payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPushError(data.error || `Fel ${res.status}`);
+        return;
+      }
+      setPushResult(data as PushResult);
+    } catch (err) {
+      setPushError(`Kunde inte nå servern: ${(err as Error).message}`);
+    } finally {
+      setPushing(false);
+    }
+  }
+
+  function closePushModal() {
+    if (pushing) return;
+    setShowPushModal(false);
   }
 
   // ── AI-granskning ──
@@ -952,6 +1034,13 @@ export function Editor() {
           >
             Exportera ändrade
           </button>
+          <button
+            className="action-btn download-btn"
+            onClick={handleOpenPush}
+            disabled={translations.length === 0}
+          >
+            Skicka till PDH
+          </button>
           <ThemeToggle />
         </div>
 
@@ -1298,6 +1387,80 @@ export function Editor() {
       )}
 
       {/* AI-bekräftelse */}
+      {showPushModal && pushExport && (
+        <div className="modal-backdrop" onClick={closePushModal}>
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 500 }}
+          >
+            <div className="modal-header">
+              <h2>Skicka till PDH</h2>
+              <button className="modal-close" onClick={closePushModal} disabled={pushing}>
+                ✕
+              </button>
+            </div>
+            <div className="modal-body" style={{ lineHeight: 1.6 }}>
+              {pushResult ? (
+                <>
+                  <p style={{ margin: '0 0 12px' }}>
+                    {pushResult.count} ändrade texter skickades till branchen{' '}
+                    <code>{pushResult.branch}</code>. PDH importerar dem och lägger
+                    resultatet i en pull request som en utvecklare granskar.
+                  </p>
+                  <p style={{ margin: '0 0 20px' }}>
+                    {pushResult.pr_url ? (
+                      <a href={pushResult.pr_url} target="_blank" rel="noreferrer">
+                        Öppna pull requesten
+                      </a>
+                    ) : (
+                      <a href={pushResult.branch_url} target="_blank" rel="noreferrer">
+                        Öppna branchen
+                      </a>
+                    )}
+                  </p>
+                </>
+              ) : pushExport.count === 0 ? (
+                <p style={{ margin: '0 0 20px' }}>Inga ändrade texter att skicka.</p>
+              ) : (
+                <p style={{ margin: '0 0 12px' }}>
+                  {pushExport.count} ändrade texter skickas till PDH. Alla ändringar
+                  sedan senaste import från PDH följer med, även sådana du redan har
+                  skickat.
+                </p>
+              )}
+              {!pushResult && exportWarnings(pushExport).map((w) => (
+                <p key={w} style={{ margin: '0 0 12px', color: 'var(--ink)' }}>
+                  ⚠ {w}
+                </p>
+              ))}
+              {pushError && (
+                <p style={{ margin: '0 0 12px', color: 'var(--error)' }}>{pushError}</p>
+              )}
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button
+                  className="action-btn"
+                  style={{ background: 'var(--panel-2)', color: 'var(--ink)' }}
+                  onClick={closePushModal}
+                  disabled={pushing}
+                >
+                  {pushResult || pushExport.count === 0 ? 'Stäng' : 'Avbryt'}
+                </button>
+                {!pushResult && pushExport.count > 0 && (
+                  <button
+                    className="action-btn download-btn"
+                    onClick={handleConfirmPush}
+                    disabled={pushing}
+                  >
+                    {pushing ? 'Skickar...' : 'Skicka'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showAiConfirm && (
         <div className="modal-backdrop" onClick={() => setShowAiConfirm(false)}>
           <div

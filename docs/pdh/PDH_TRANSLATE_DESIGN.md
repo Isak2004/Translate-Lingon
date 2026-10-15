@@ -208,9 +208,10 @@ Vägrade rader stoppar inte importen (D4) — de syns i PR-beskrivningen, och de
 som arbetar i Translate kan åtgärda dem och skicka igen.
 
 **Behörighet.** Translate pushar med en GitHub App installerad på
-`lingon/product-data-hub` med `contents: write`. Nyckeln ligger på Translates
-serversida (Supabase Edge Function), aldrig i webbläsaren. Appen sätts upp av en
-admin i `lingon`.
+`lingon/product-data-hub` med `contents: write` (och `pull_requests: read`, för
+att kunna länka till PR:en). Nyckeln ligger på Translates serversida (Netlify
+Function `push-to-pdh`, samma ställe som AI-granskningens nyckel), aldrig i
+webbläsaren. Appen sätts upp av en admin i `lingon`.
 
 **CI på PR:en.** Commits och PR:er som skapas med Actionens inbyggda
 `GITHUB_TOKEN` triggar inte andra workflows — vanlig CI skulle alltså inte köras.

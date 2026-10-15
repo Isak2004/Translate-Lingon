@@ -119,7 +119,7 @@ skrivs av Translate och tas bort av Actionen — lägg inget här för hand").
 - Skapa/installera GitHub App med `contents: write` och `pull_requests: write`
   på `lingon/product-data-hub`.
 - Lägg appens id + privata nyckel som Actions-secrets för workflowen.
-- Ge Translate samma app (eller en egen med bara `contents: write`).
+- Ge Translate samma app (eller en egen med `contents: write` och `pull_requests: read`).
 - Om `main` har branch protection: inget behöver ändras, PR:en går samma väg
   som andra.
 
@@ -208,13 +208,19 @@ Ska bara ge träffar i historiska dokument (om några).
 
 Görs i Translate-Lingon, parallellt med PR 2.
 
-- Supabase Edge Function `push-to-pdh`: tar exportfilen (samma innehåll som
-  "Exportera ändrade"), hämtar en installationstoken för GitHub-appen och via
-  GitHub:s REST-API:
+**Byggd** på branchen `feat/push-to-pdh` (2026-10-15).
+
+- Netlify Function `netlify/functions/push-to-pdh.js` (Translates serverkod är
+  Netlify Functions, inte Supabase): tar exportfilen (samma innehåll som
+  "Exportera ändrade"), kontrollerar filnivån som PDH gör, hämtar en
+  installationstoken för GitHub-appen och via GitHub:s REST-API:
   1. Kollar om `translate/sv` finns; annars skapar den från `main`s HEAD.
   2. Skriver `translations/incoming/sv-changes.json` på branchen
      (`PUT /repos/{owner}/{repo}/contents/{path}`, med `sha` om filen redan finns).
-- Appens id och privata nyckel som Edge Function-secrets — aldrig i klienten.
+  3. Slår upp en öppen PR för branchen, för att kunna länka till den.
+- Miljövariabler i Netlify: `PDH_GITHUB_APP_ID`, `PDH_GITHUB_APP_PRIVATE_KEY`
+  (PEM, `\n` på en rad går bra) och valfritt `PDH_GITHUB_REPO`. Aldrig i klienten.
+- Appen behöver `contents: write` och `pull_requests: read`.
 - Knapp "Skicka till PDH" bredvid "Exportera ändrade". Efter lyckat anrop:
   visa länk till branchen/PR:en. Samma varning som vid export om rader hoppas
   över på grund av "Engelska ändrad".
