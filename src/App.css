@@ -659,6 +659,45 @@ a:hover { text-decoration: underline; }
 .modal-close:hover { background: var(--panel); color: var(--ink); }
 .modal-body { padding: 20px 24px; overflow-y: auto; }
 
+/* Skicka till PDH — listan i bekräftelsen */
+.push-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 16px;
+  /* Egen scroll så att Avbryt/Skicka alltid syns, även med hundratals texter */
+  max-height: 45vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.push-row {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.push-row-key { font-family: var(--mono); font-size: 11px; color: var(--faint); word-break: break-all; }
+.push-row-en { color: var(--muted); }
+.push-row-text { display: flex; gap: 10px; align-items: baseline; }
+.push-row-label {
+  flex: 0 0 40px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.push-row-before { color: var(--muted); text-decoration: line-through; white-space: pre-wrap; }
+.push-row-after {
+  color: var(--ink);
+  background: var(--sage-tint);
+  border-radius: 4px;
+  padding: 0 4px;
+  white-space: pre-wrap;
+}
+
 .history-list { display: flex; flex-direction: column; gap: 12px; }
 .history-entry {
   border: 1px solid var(--line);

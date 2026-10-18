@@ -47,7 +47,11 @@ interface BuiltExport {
   count: number;
   emptyCount: number;
   sourceChangedCount: number;
+  // För bekräftelsen före "Skicka till PDH". Skickas inte.
+  rows: PushRow[];
 }
+
+interface PushRow { key: string; en: string; before: string; after: string; }
 
 interface PushResult {
   count: number;
@@ -575,6 +579,7 @@ export function Editor() {
   // så varje export innehåller alla ändringar sedan importen.
   async function buildExport(): Promise<BuiltExport> {
     const keys: Record<string, ExportEntry> = {};
+    const rows: PushRow[] = [];
     let emptyCount = 0;
     let sourceChangedCount = 0;
 
@@ -597,6 +602,12 @@ export function Editor() {
         src: await sourceHash(t.source_text),
         sv: t.target_text,
       };
+      rows.push({
+        key: t.key,
+        en: t.source_text,
+        before: t.imported_target_text ?? '',
+        after: t.target_text,
+      });
     }
 
     return {
@@ -610,6 +621,7 @@ export function Editor() {
       count: Object.keys(keys).length,
       emptyCount,
       sourceChangedCount,
+      rows,
     };
   }
 
@@ -1386,13 +1398,13 @@ export function Editor() {
         </div>
       )}
 
-      {/* AI-bekräftelse */}
+      {/* Skicka till PDH — bekräftelse med alla texter som skickas */}
       {showPushModal && pushExport && (
         <div className="modal-backdrop" onClick={closePushModal}>
           <div
             className="modal"
             onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: 500 }}
+            style={{ width: 760, maxWidth: '92vw' }}
           >
             <div className="modal-header">
               <h2>Skicka till PDH</h2>
@@ -1424,9 +1436,9 @@ export function Editor() {
                 <p style={{ margin: '0 0 20px' }}>Inga ändrade texter att skicka.</p>
               ) : (
                 <p style={{ margin: '0 0 12px' }}>
-                  {pushExport.count} ändrade texter skickas till PDH. Alla ändringar
-                  sedan senaste import från PDH följer med, även sådana du redan har
-                  skickat.
+                  Dessa {pushExport.count} ändrade texter skickas till PDH. Där granskar
+                  en utvecklare dem innan något går live. Alla ändringar sedan senaste
+                  import från PDH följer med, även sådana du redan har skickat.
                 </p>
               )}
               {!pushResult && exportWarnings(pushExport).map((w) => (
@@ -1434,6 +1446,24 @@ export function Editor() {
                   ⚠ {w}
                 </p>
               ))}
+              {!pushResult && pushExport.rows.length > 0 && (
+                <div className="push-list">
+                  {pushExport.rows.map((r) => (
+                    <div key={r.key} className="push-row">
+                      <code className="push-row-key">{r.key}</code>
+                      <div className="push-row-en">{r.en}</div>
+                      <div className="push-row-text">
+                        <span className="push-row-label">Före</span>
+                        <span className="push-row-before">{r.before || '(tom)'}</span>
+                      </div>
+                      <div className="push-row-text">
+                        <span className="push-row-label">Efter</span>
+                        <span className="push-row-after">{r.after}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               {pushError && (
                 <p style={{ margin: '0 0 12px', color: 'var(--error)' }}>{pushError}</p>
               )}
