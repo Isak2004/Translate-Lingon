@@ -79,7 +79,10 @@ export function ProjectList() {
 
   return (
     <div className="page-center">
-      <div style={{ position: 'fixed', top: 16, right: 16 }}>
+      <div style={{ position: 'fixed', top: 16, right: 16, display: 'flex', gap: 8 }}>
+        <Link to="/hjalp" className="action-btn" title="Så fungerar Translate">
+          ? Hjälp
+        </Link>
         <ThemeToggle />
       </div>
       <div style={{ textAlign: 'center', marginBottom: 32 }}>

@@ -66,6 +66,106 @@ function isSourceChanged(t: Translation): boolean {
   return t.edited_source_text !== null && t.edited_source_text !== t.source_text;
 }
 
+// ── Förhandsvisning av import ──
+// Räknar ut vad en import skulle göra, med samma regler som importFiles, och
+// varnar för fel filer innan något skrivs. Skriver ingenting.
+
+interface ImportWarning { level: 'stop' | 'warn'; text: string; }
+
+interface ImportPlan {
+  enFlat: FlatMap;
+  svFlat: FlatMap;
+  newKeys: number;
+  sourceChanged: number;   // engelskan ändrad i PDH
+  svUpdated: number;       // svenska som skrivs över (du hade inte ändrat den)
+  roundTripped: number;    // dina ändringar som nu finns i PDH
+  stillPending: number;    // dina ändringar som PDH ännu inte har
+  editsKept: number;       // PDH har en annan ny text, din ändring behålls
+  missing: number;         // finns i Translate men inte i filerna
+  warnings: ImportWarning[];
+}
+
+const SWEDISH_CHARS = /[åäöÅÄÖ]/;
+
+function swedishShare(flat: FlatMap): number {
+  const values = Object.values(flat).filter((v) => v.trim());
+  if (values.length === 0) return 0;
+  return values.filter((v) => SWEDISH_CHARS.test(v)).length / values.length;
+}
+
+function planImport(enFlat: FlatMap, svFlat: FlatMap, existing: Translation[]): ImportPlan {
+  const byKey = new Map(existing.map((t) => [t.key, t]));
+  const fileKeys = new Set([...Object.keys(enFlat), ...Object.keys(svFlat)]);
+  const plan: ImportPlan = {
+    enFlat, svFlat, newKeys: 0, sourceChanged: 0, svUpdated: 0,
+    roundTripped: 0, stillPending: 0, editsKept: 0, missing: 0, warnings: [],
+  };
+  let svEmptied = 0;
+  // Hur många engelska värden i en-filen som är lika med Translates svenska
+  // respektive engelska — ger utslag om filerna har bytt plats.
+  let enLooksSv = 0;
+  let enLooksEn = 0;
+
+  for (const key of fileKeys) {
+    const t = byKey.get(key);
+    const newEn = enFlat[key] ?? '';
+    const newSv = svFlat[key] ?? '';
+    if (!t) { plan.newKeys++; continue; }
+
+    if (newEn && newEn === t.source_text) enLooksEn++;
+    else if (newEn && t.imported_target_text && newEn === t.imported_target_text) enLooksSv++;
+
+    if (t.source_text !== newEn) plan.sourceChanged++;
+    const edited = t.target_text !== t.imported_target_text;
+    const importChanged = newSv !== t.imported_target_text;
+    if (!edited) {
+      if (importChanged) {
+        plan.svUpdated++;
+        if (!newSv && t.target_text) svEmptied++;
+      }
+    } else if (newSv === t.target_text) {
+      plan.roundTripped++;
+    } else if (importChanged) {
+      plan.editsKept++;
+    } else {
+      plan.stillPending++;
+    }
+  }
+  for (const t of existing) if (!fileKeys.has(t.key)) plan.missing++;
+
+  const enSv = swedishShare(enFlat);
+  const svSv = swedishShare(svFlat);
+  if ((enLooksSv > 10 && enLooksSv > enLooksEn) || (enSv > 0.05 && enSv > svSv * 2)) {
+    plan.warnings.push({
+      level: 'stop',
+      text: 'Filerna verkar ha bytt plats: filen under "Engelska" ser svensk ut. ' +
+        'Kontrollera att en.json och sv.json ligger på rätt rad.',
+    });
+  }
+  if (existing.length > 0 && plan.missing > Math.max(5, existing.length * 0.02)) {
+    plan.warnings.push({
+      level: 'warn',
+      text: `${plan.missing} texter som finns i Translate saknas i filerna. ` +
+        'Har du valt äldre filer eller filer från fel ställe? (Om PDH verkligen har ' +
+        'tagit bort texterna är det ofarligt.)',
+    });
+  }
+  if (existing.length > 0 && plan.sourceChanged > Math.max(20, existing.length * 0.2)) {
+    plan.warnings.push({
+      level: 'warn',
+      text: `Ovanligt många engelska texter (${plan.sourceChanged}) ändras. ` +
+        'Deras AI-granskning nollställs. Kontrollera att filerna är de senaste från PDH.',
+    });
+  }
+  if (svEmptied > 0) {
+    plan.warnings.push({
+      level: 'warn',
+      text: `${svEmptied} svenska texter blir tomma, eftersom de saknas i sv.json.`,
+    });
+  }
+  return plan;
+}
+
 // ── Kategori-helper ──
 
 function getCategory(
@@ -113,7 +213,7 @@ export function Editor() {
   const [showAiModal, setShowAiModal] = useState(false);
   const [aiSummary, setAiSummary] = useState<{
     approved: number; rejected: number; manuallyApproved: number;
-    total: number; findings: number;
+    total: number; findings: number; notReviewed: number;
   } | null>(null);
 
   const [glossary, setGlossary] = useState<GlossaryTerm[]>([]);
@@ -122,6 +222,7 @@ export function Editor() {
   const [enFile, setEnFile] = useState<File | null>(null);
   const [svFile, setSvFile] = useState<File | null>(null);
   const [glossaryFile, setGlossaryFile] = useState<File | null>(null);
+  const [importPlan, setImportPlan] = useState<ImportPlan | null>(null);
 
   const [showPushModal, setShowPushModal] = useState(false);
   const [pushExport, setPushExport] = useState<BuiltExport | null>(null);
@@ -294,16 +395,36 @@ export function Editor() {
     setEnFile(null);
     setSvFile(null);
     setGlossaryFile(null);
+    setImportPlan(null);
     setShowImportModal(true);
   }
 
-  async function doImport() {
-    if (!enFile || !svFile) return;
+  function closeImportModal() {
     setShowImportModal(false);
+    setImportPlan(null);
+  }
+
+  // Steg 1: läs filerna och visa vad importen skulle göra. Inget skrivs.
+  async function previewImport() {
+    if (!enFile || !svFile) return;
+    try {
+      const enFlat = flatten(JSON.parse(await enFile.text()));
+      const svFlat = flatten(JSON.parse(await svFile.text()));
+      setImportPlan(planImport(enFlat, svFlat, translations));
+    } catch (err) {
+      alert('Kunde inte läsa filerna: ' + (err as Error).message);
+    }
+  }
+
+  // Steg 2: användaren har sett förhandsvisningen och bekräftat.
+  async function doImport() {
+    if (!importPlan) return;
+    const { enFlat, svFlat } = importPlan;
+    closeImportModal();
     setImporting(true);
 
     try {
-      const stats = await importFiles(enFile, svFile);
+      const stats = await importFiles(enFlat, svFlat);
 
       let gInserted = 0, gUpdated = 0, gUnchanged = 0, gTotal = 0;
       if (glossaryFile) {
@@ -331,11 +452,7 @@ export function Editor() {
     setImporting(false);
   }
 
-  async function importFiles(enFile: File, svFile: File) {
-    const enRaw = JSON.parse(await enFile.text());
-    const svRaw = JSON.parse(await svFile.text());
-    const enFlat = flatten(enRaw);
-    const svFlat = flatten(svRaw);
+  async function importFiles(enFlat: FlatMap, svFlat: FlatMap) {
     const allKeys = [...new Set([...Object.keys(enFlat), ...Object.keys(svFlat)])].sort();
 
     const existingByKey = new Map<string, Translation>();
@@ -720,12 +837,16 @@ export function Editor() {
     const totalBatches = Math.ceil(toReview.length / BATCH_SIZE);
     let failedBatches = 0;
     let lastError = '';
+    // Bara nycklar vars batch faktiskt granskades markeras som granskade, så
+    // att en misslyckad batch granskas nästa gång i stället för att tappas bort.
+    const reviewedOk: Translation[] = [];
 
     for (let i = 0; i < toReview.length; i += BATCH_SIZE) {
       const batchNum = Math.floor(i / BATCH_SIZE) + 1;
       setAiProgress(`Granskar batch ${batchNum} av ${totalBatches} (${toReview.length} nya nycklar)...`);
 
-      const batch = toReview.slice(i, i + BATCH_SIZE).map((t) => ({
+      const batchRows = toReview.slice(i, i + BATCH_SIZE);
+      const batch = batchRows.map((t) => ({
         key: t.key,
         source_text: t.source_text,
         target_text: t.target_text,
@@ -766,6 +887,7 @@ export function Editor() {
         }
 
         const data = await res.json();
+        reviewedOk.push(...batchRows);
         if (data.findings?.length > 0) {
           newFindings.push(...data.findings);
           setAiFindings([...existingFindings, ...newFindings]);
@@ -804,7 +926,8 @@ export function Editor() {
       setAiProgress(`Granskningen misslyckades. ${lastError}`);
     } else if (failedBatches > 0) {
       setAiProgress(
-        `${failedBatches} av ${totalBatches} batchar misslyckades. ${cleanNewFindings.length} nya problem hittade.`
+        `${failedBatches} av ${totalBatches} batchar misslyckades. ${cleanNewFindings.length} nya problem hittade. ` +
+        `Kör granskningen igen för att granska de ${toReview.length - reviewedOk.length} nycklar som inte hann granskas.`
       );
     } else {
       setAiProgress(
@@ -838,7 +961,7 @@ export function Editor() {
     // Markera granskade nycklar med tidstämpel
     if (failedBatches < totalBatches) {
       const now = new Date().toISOString();
-      const reviewedIds = toReview.map((t) => t.id);
+      const reviewedIds = reviewedOk.map((t) => t.id);
       for (let i = 0; i < reviewedIds.length; i += 500) {
         const batch = reviewedIds.slice(i, i + 500);
         await supabase
@@ -858,8 +981,12 @@ export function Editor() {
     // Sammanfattning med ALLA findings (gamla + nya)
     if (failedBatches < totalBatches) {
       const flaggedKeys = new Set(allFindings.map((f) => f.key));
+      // En misslyckad batch är inte granskad och får inte räknas som godkänd.
+      const okIds = new Set(reviewedOk.map((t) => t.id));
+      const notReviewedIds = new Set(toReview.filter((t) => !okIds.has(t.id)).map((t) => t.id));
       let approved = 0, rejected = 0, manuallyApproved = 0;
       for (const t of translations) {
+        if (notReviewedIds.has(t.id)) continue;
         const isMissing = !t.target_text && !!t.source_text;
         if (isMissing) { rejected++; continue; }
         if (flaggedKeys.has(t.key)) {
@@ -876,8 +1003,9 @@ export function Editor() {
         approved,
         rejected,
         manuallyApproved,
-        total: translations.length,
+        total: translations.length - notReviewedIds.size,
         findings: allFindings.length,
+        notReviewed: notReviewedIds.size,
       });
     }
   }
@@ -1053,6 +1181,9 @@ export function Editor() {
           >
             Skicka till PDH
           </button>
+          <Link to="/hjalp" className="action-btn" title="Så fungerar Translate">
+            ? Hjälp
+          </Link>
           <ThemeToggle />
         </div>
 
@@ -1193,14 +1324,56 @@ export function Editor() {
 
       {/* Import-modal */}
       {showImportModal && (
-        <div className="modal-backdrop" onClick={() => setShowImportModal(false)}>
+        <div className="modal-backdrop" onClick={closeImportModal}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Importera filer</h2>
-              <button className="modal-close" onClick={() => setShowImportModal(false)}>
+              <h2>{importPlan ? 'Så här blir importen' : 'Importera filer'}</h2>
+              <button className="modal-close" onClick={closeImportModal}>
                 ✕
               </button>
             </div>
+            {importPlan ? (
+            <div className="modal-body" style={{ lineHeight: 1.6 }}>
+              {importPlan.warnings.map((w) => (
+                <p key={w.text} className={`import-warning import-warning-${w.level}`}>
+                  {w.level === 'stop' ? '⛔' : '⚠'} {w.text}
+                </p>
+              ))}
+              <ul className="import-plan">
+                <li><b>{importPlan.newKeys}</b> nya texter läggs till</li>
+                <li><b>{importPlan.sourceChanged}</b> engelska texter har ändrats i PDH (AI-granskningen görs om för dem)</li>
+                <li><b>{importPlan.svUpdated}</b> svenska texter uppdateras från PDH (du hade inte ändrat dem)</li>
+                {importPlan.roundTripped > 0 && (
+                  <li><b>{importPlan.roundTripped}</b> av dina ändringar finns nu i PDH och räknas inte längre som ändrade</li>
+                )}
+                {importPlan.stillPending > 0 && (
+                  <li><b>{importPlan.stillPending}</b> av dina ändringar finns ännu inte i PDH och ligger kvar som ändrade</li>
+                )}
+                {importPlan.editsKept > 0 && (
+                  <li><b>{importPlan.editsKept}</b> texter har en ny svensk text i PDH, men din ändring behålls</li>
+                )}
+              </ul>
+              <p style={{ margin: '0 0 16px', color: 'var(--muted)', fontSize: 13 }}>
+                Dina egna ändringar skrivs aldrig över av en import.
+              </p>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button
+                  className="action-btn"
+                  style={{ background: 'var(--panel-2)', color: 'var(--ink)' }}
+                  onClick={() => setImportPlan(null)}
+                >
+                  Tillbaka
+                </button>
+                <button
+                  className="action-btn import-btn"
+                  onClick={doImport}
+                  disabled={importPlan.warnings.some((w) => w.level === 'stop')}
+                >
+                  Importera
+                </button>
+              </div>
+            </div>
+            ) : (
             <div className="modal-body">
               <div className="import-fields">
                 <label className="import-field">
@@ -1241,11 +1414,12 @@ export function Editor() {
                 className="action-btn import-btn"
                 style={{ marginTop: '16px', width: '100%', padding: '10px' }}
                 disabled={!enFile || !svFile}
-                onClick={doImport}
+                onClick={previewImport}
               >
-                Importera
+                Fortsätt
               </button>
             </div>
+            )}
           </div>
         </div>
       )}
@@ -1259,7 +1433,7 @@ export function Editor() {
             style={{ maxWidth: 460 }}
           >
             <div className="modal-header">
-              <h2>{aiReviewing ? '🤖 AI-granskning pågår' : aiSummary ? '🤖 AI-granskning klar!' : '🤖 AI-granskning'}</h2>
+              <h2>{aiReviewing ? '🤖 AI-granskning pågår' : aiSummary ? (aiSummary.notReviewed > 0 ? '🤖 AI-granskning delvis klar' : '🤖 AI-granskning klar!') : '🤖 AI-granskning'}</h2>
               {!aiReviewing && (
                 <button className="modal-close" onClick={() => { setShowAiModal(false); setAiSummary(null); }}>
                   ✕
@@ -1274,6 +1448,9 @@ export function Editor() {
                 </div>
               ) : aiSummary ? (
                 <>
+                  {aiSummary.notReviewed > 0 && (
+                    <p className="import-warning import-warning-warn">⚠ {aiProgress}</p>
+                  )}
                   <p style={{ margin: '0 0 12px', fontWeight: 600 }}>
                     {aiSummary.total} texter analyserade:
                   </p>
