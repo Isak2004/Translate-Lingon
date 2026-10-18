@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { languageName } from '../languages';
 import { supabase } from '../supabase';
 import { TranslationRow } from './TranslationRow';
 import { ThemeToggle } from './ThemeToggle';
@@ -83,6 +84,7 @@ interface ImportPlan {
   editsKept: number;       // PDH har en annan ny text, din ändring behålls
   missing: number;         // finns i Translate men inte i filerna
   warnings: ImportWarning[];
+  source: string;          // var filerna kom ifrån, för förhandsvisningen
 }
 
 const SWEDISH_CHARS = /[åäöÅÄÖ]/;
@@ -99,6 +101,7 @@ function planImport(enFlat: FlatMap, svFlat: FlatMap, existing: Translation[]): 
   const plan: ImportPlan = {
     enFlat, svFlat, newKeys: 0, sourceChanged: 0, svUpdated: 0,
     roundTripped: 0, stillPending: 0, editsKept: 0, missing: 0, warnings: [],
+    source: '',
   };
   let svEmptied = 0;
   // Hur många engelska värden i en-filen som är lika med Translates svenska
@@ -223,6 +226,8 @@ export function Editor() {
   const [svFile, setSvFile] = useState<File | null>(null);
   const [glossaryFile, setGlossaryFile] = useState<File | null>(null);
   const [importPlan, setImportPlan] = useState<ImportPlan | null>(null);
+  const [pdhFetching, setPdhFetching] = useState(false);
+  const [pdhFetchError, setPdhFetchError] = useState('');
 
   const [showPushModal, setShowPushModal] = useState(false);
   const [pushExport, setPushExport] = useState<BuiltExport | null>(null);
@@ -396,7 +401,33 @@ export function Editor() {
     setSvFile(null);
     setGlossaryFile(null);
     setImportPlan(null);
+    setPdhFetchError('');
     setShowImportModal(true);
+  }
+
+  // Steg 1 (vanliga vägen): hämta en.json och projektets språkfil direkt från
+  // PDH:s main. Språket kommer från projektet, så fel fil kan inte väljas.
+  async function previewImportFromPdh() {
+    const locale = project?.target_language;
+    if (!locale || pdhFetching) return;
+    setPdhFetching(true);
+    setPdhFetchError('');
+    try {
+      const res = await fetch(`/.netlify/functions/pdh-locales?locale=${encodeURIComponent(locale)}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPdhFetchError(data.error || `Fel ${res.status}`);
+        return;
+      }
+      const plan = planImport(flatten(data.en), flatten(data.target), translations);
+      const date = data.commit?.date ? ` (${new Date(data.commit.date).toLocaleString('sv-SE')})` : '';
+      plan.source = `Från PDH, main-commit ${data.commit?.short ?? '?'}${date}`;
+      setImportPlan(plan);
+    } catch (err) {
+      setPdhFetchError(`Kunde inte nå servern: ${(err as Error).message}`);
+    } finally {
+      setPdhFetching(false);
+    }
   }
 
   function closeImportModal() {
@@ -410,7 +441,9 @@ export function Editor() {
     try {
       const enFlat = flatten(JSON.parse(await enFile.text()));
       const svFlat = flatten(JSON.parse(await svFile.text()));
-      setImportPlan(planImport(enFlat, svFlat, translations));
+      const plan = planImport(enFlat, svFlat, translations);
+      plan.source = `Från filerna du valde: ${enFile.name} och ${svFile.name}`;
+      setImportPlan(plan);
     } catch (err) {
       alert('Kunde inte läsa filerna: ' + (err as Error).message);
     }
@@ -1148,6 +1181,9 @@ export function Editor() {
             ←
           </Link>
           <span className="brand">{project.name}</span>
+          <span className="lang-badge" title={`Översätter till ${languageName(project.target_language)}`}>
+            {project.target_language}
+          </span>
           {saveStatus && <span className="save-indicator">{saveStatus}</span>}
 
           <div className="topbar-spacer" />
@@ -1327,13 +1363,16 @@ export function Editor() {
         <div className="modal-backdrop" onClick={closeImportModal}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>{importPlan ? 'Så här blir importen' : 'Importera filer'}</h2>
+              <h2>{importPlan ? 'Så här blir importen' : 'Importera från PDH'}</h2>
               <button className="modal-close" onClick={closeImportModal}>
                 ✕
               </button>
             </div>
             {importPlan ? (
             <div className="modal-body" style={{ lineHeight: 1.6 }}>
+              <p style={{ margin: '0 0 12px', color: 'var(--muted)', fontSize: 13 }}>
+                {importPlan.source}
+              </p>
               {importPlan.warnings.map((w) => (
                 <p key={w.text} className={`import-warning import-warning-${w.level}`}>
                   {w.level === 'stop' ? '⛔' : '⚠'} {w.text}
@@ -1374,7 +1413,36 @@ export function Editor() {
               </div>
             </div>
             ) : (
-            <div className="modal-body">
+            <div className="modal-body" style={{ lineHeight: 1.6 }}>
+              <p style={{ margin: '0 0 12px' }}>
+                Hämtar <code>en.json</code> och{' '}
+                <code>{project?.target_language}.json</code> från PDH (main). Du ser vad
+                importen kommer att göra innan något sparas.
+              </p>
+              <button
+                className="action-btn fetch-pdh-btn"
+                style={{ width: '100%', padding: '10px', justifyContent: 'center' }}
+                onClick={previewImportFromPdh}
+                disabled={pdhFetching || !project}
+              >
+                {pdhFetching ? 'Hämtar...' : 'Hämta från PDH'}
+              </button>
+              {pdhFetchError && (
+                <p style={{ margin: '12px 0 0', color: 'var(--error)' }}>{pdhFetchError}</p>
+              )}
+              <label className="import-field" style={{ marginTop: 16 }}>
+                <span className="import-label">
+                  Ordlista (valfri, importeras samtidigt)
+                  {glossaryFile && <span className="import-ok">✓ {glossaryFile.name}</span>}
+                </span>
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={(e) => setGlossaryFile(e.target.files?.[0] ?? null)}
+                />
+              </label>
+              <details className="import-manual">
+                <summary>Välj filer själv i stället</summary>
               <div className="import-fields">
                 <label className="import-field">
                   <span className="import-label">
@@ -1389,7 +1457,7 @@ export function Editor() {
                 </label>
                 <label className="import-field">
                   <span className="import-label">
-                    Svenska (sv.json)
+                    {languageName(project?.target_language ?? 'sv')} ({project?.target_language}.json)
                     {svFile && <span className="import-ok">✓ {svFile.name}</span>}
                   </span>
                   <input
@@ -1398,26 +1466,16 @@ export function Editor() {
                     onChange={(e) => setSvFile(e.target.files?.[0] ?? null)}
                   />
                 </label>
-                <label className="import-field">
-                  <span className="import-label">
-                    Ordlista (valfri)
-                    {glossaryFile && <span className="import-ok">✓ {glossaryFile.name}</span>}
-                  </span>
-                  <input
-                    type="file"
-                    accept=".json"
-                    onChange={(e) => setGlossaryFile(e.target.files?.[0] ?? null)}
-                  />
-                </label>
               </div>
               <button
-                className="action-btn import-btn"
-                style={{ marginTop: '16px', width: '100%', padding: '10px' }}
+                className="action-btn"
+                style={{ marginTop: '12px', width: '100%', padding: '10px', justifyContent: 'center' }}
                 disabled={!enFile || !svFile}
                 onClick={previewImport}
               >
-                Fortsätt
+                Fortsätt med valda filer
               </button>
+              </details>
             </div>
             )}
           </div>

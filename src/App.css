@@ -659,6 +659,43 @@ a:hover { text-decoration: underline; }
 .modal-close:hover { background: var(--panel); color: var(--ink); }
 .modal-body { padding: 20px 24px; overflow-y: auto; }
 
+/* Projektets språk, bredvid namnet i editorn */
+.lang-badge {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  padding: 1px 8px;
+}
+
+/* Import — huvudknappen "Hämta från PDH" */
+.fetch-pdh-btn { background: var(--sage); border-color: var(--sage); color: #fff; font-weight: 600; }
+.fetch-pdh-btn:hover { background: var(--sage-hover); border-color: var(--sage-hover); }
+.fetch-pdh-btn:disabled { opacity: 0.6; cursor: wait; }
+
+/* Import — manuella filer, ihopfällt */
+.import-manual { margin-top: 16px; }
+.import-manual summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+}
+.import-manual[open] summary { margin-bottom: 8px; }
+
+/* Skapa projekt — språkval */
+.create-form select {
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+}
+
 /* Import — förhandsvisning */
 .import-plan { margin: 0 0 12px; padding-left: 20px; }
 .import-plan li { margin-bottom: 4px; }
@@ -1267,6 +1304,11 @@ a:hover { text-decoration: underline; }
   padding: 20px 24px;
 }
 .guide-lead { font-size: 16px; font-weight: 500; }
+.guide-key {
+  border: 2px solid var(--sage);
+  border-radius: var(--r-lg);
+  padding: 20px 24px;
+}
 .guide-cycle { list-style: none; padding-left: 0 !important; counter-reset: step; }
 .guide-cycle li {
   counter-increment: step;

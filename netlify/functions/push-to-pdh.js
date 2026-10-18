@@ -5,17 +5,13 @@
 // Action i PDH gör själva importen (design D8/§9 i docs/pdh/). Den här
 // funktionen skriver aldrig sv.json och rör inga andra filer.
 //
-// Miljövariabler (Netlify dashboard):
-//   PDH_GITHUB_APP_ID           GitHub-appens id
-//   PDH_GITHUB_APP_PRIVATE_KEY  appens privata nyckel (PEM; "\n" i en rad går bra)
-//   PDH_GITHUB_REPO             valfri, standard "lingon/product-data-hub"
+// Miljövariabler: se netlify/lib/github.js.
 
-import { createSign } from 'node:crypto';
+import { appConfig, gh, installationToken } from '../lib/github.js';
 
 const FORMAT = 'translate-lingon/v1';
 const BASE_BRANCH = 'main';
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
-const API = 'https://api.github.com';
 
 const json = (statusCode, body) => ({
   statusCode,
@@ -49,57 +45,6 @@ function validateExport(payload) {
     }
   }
   return null;
-}
-
-// ── GitHub App-autentisering ──
-
-function b64url(input) {
-  return Buffer.from(input).toString('base64')
-    .replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
-}
-
-function appJwt(appId, privateKey) {
-  const now = Math.floor(Date.now() / 1000);
-  // iat 60 s bakåt mot klockskillnad; GitHub tillåter max 10 min livslängd.
-  const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
-  const body = b64url(JSON.stringify({ iat: now - 60, exp: now + 540, iss: String(appId) }));
-  const signature = createSign('RSA-SHA256').update(`${header}.${body}`).sign(privateKey);
-  return `${header}.${body}.${b64url(signature)}`;
-}
-
-async function gh(path, token, { method = 'GET', body, allow404 = false } = {}) {
-  const res = await fetch(`${API}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-      'User-Agent': 'translate-lingon',
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (allow404 && res.status === 404) return null;
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const err = new Error(`GitHub ${method} ${path}: ${res.status} ${data.message || ''}`.trim());
-    err.status = res.status;
-    throw err;
-  }
-  return data;
-}
-
-async function installationToken(appId, privateKey, repo) {
-  const jwt = appJwt(appId, privateKey);
-  const installation = await gh(`/repos/${repo}/installation`, jwt);
-  const { token } = await gh(`/app/installations/${installation.id}/access_tokens`, jwt, {
-    method: 'POST',
-    body: {
-      repositories: [repo.split('/')[1]],
-      permissions: { contents: 'write', pull_requests: 'read' },
-    },
-  });
-  return token;
 }
 
 // ── Branch + fil ──
@@ -151,9 +96,7 @@ async function openPullRequest(repo, branch, token) {
 export const handler = async (event) => {
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
 
-  const appId = process.env.PDH_GITHUB_APP_ID;
-  const privateKey = (process.env.PDH_GITHUB_APP_PRIVATE_KEY || '').replace(/\\n/g, '\n');
-  const repo = process.env.PDH_GITHUB_REPO || 'lingon/product-data-hub';
+  const { appId, privateKey, repo } = appConfig();
   if (!appId || !privateKey) {
     return json(500, { error: 'GitHub-appen är inte konfigurerad (PDH_GITHUB_APP_ID / PDH_GITHUB_APP_PRIVATE_KEY).' });
   }
@@ -176,7 +119,9 @@ export const handler = async (event) => {
   const count = Object.keys(payload.keys).length;
 
   try {
-    const token = await installationToken(appId, privateKey, repo);
+    const token = await installationToken(appId, privateKey, repo, {
+      contents: 'write', pull_requests: 'read',
+    });
     const created = await ensureBranch(repo, branch, token);
     const result = await writeFile(
       repo, branch, path, JSON.stringify(payload, null, 2) + '\n',

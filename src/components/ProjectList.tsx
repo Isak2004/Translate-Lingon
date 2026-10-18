@@ -3,16 +3,36 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { ThemeToggle } from './ThemeToggle';
 import type { Project } from '../types';
+import { languageName } from '../languages';
 
 export function ProjectList() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
   const [creating, setCreating] = useState(false);
+  // Språken som finns i PDH. Projektets språk väljs när det skapas och kan inte
+  // ändras, eftersom import och "Skicka till PDH" båda använder det.
+  const [languages, setLanguages] = useState<string[]>(['sv']);
+  const [language, setLanguage] = useState('sv');
 
   useEffect(() => {
     loadProjects();
+    loadLanguages();
   }, []);
+
+  async function loadLanguages() {
+    try {
+      const res = await fetch('/.netlify/functions/pdh-locales?list=1');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data.locales) && data.locales.length > 0) {
+        setLanguages(data.locales);
+        setLanguage((cur: string) => (data.locales.includes(cur) ? cur : data.locales[0]));
+      }
+    } catch {
+      // PDH gick inte att nå; svenska finns alltid och räcker tills vidare.
+    }
+  }
 
   async function loadProjects() {
     const { data, error } = await supabase
@@ -35,7 +55,7 @@ export function ProjectList() {
     setCreating(true);
     const { error } = await supabase
       .from('projects')
-      .insert({ name: name.trim() });
+      .insert({ name: name.trim(), target_language: language });
 
     if (error) {
       alert('Kunde inte skapa projekt: ' + error.message);
@@ -98,6 +118,18 @@ export function ProjectList() {
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
+        <select
+          value={language}
+          onChange={(e) => setLanguage(e.target.value)}
+          title="Språket kan inte ändras efteråt"
+          aria-label="Språk att översätta till"
+        >
+          {languages.map((l) => (
+            <option key={l} value={l}>
+              {languageName(l)} ({l})
+            </option>
+          ))}
+        </select>
         <button type="submit" disabled={creating || !name.trim()}>
           Skapa
         </button>

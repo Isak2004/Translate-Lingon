@@ -46,17 +46,29 @@ export function Guide() {
           </p>
         </section>
 
+        <section className="guide-key">
+          <h2>Det viktigaste att förstå</h2>
+          <p className="guide-lead">
+            En text räknas som <b>ändrad</b> så länge din svenska skiljer sig från PDH:s
+            svenska vid senaste import.
+          </p>
+          <p>
+            Translate minns hur varje svensk text såg ut när den senast importerades
+            från PDH. Allt annat följer av det:
+          </p>
+          <ul>
+            <li><b>Skicka till PDH</b> skickar alla ändrade texter, varje gång.</li>
+            <li>Att skicka, AI-granska eller godkänna gör inte att en text slutar vara ändrad.</li>
+          </ul>
+        </section>
+
         <section>
           <h2>En texts rundtur</h2>
-          <p>
-            Translate minns hur varje svensk text såg ut vid senaste import från PDH.
-            En text räknas som <b>ändrad</b> så länge din text skiljer sig från den.
-          </p>
           <ol className="guide-cycle">
             <li>
               <span className="guide-step">Importera</span>
-              Texterna från PDH:s <code>en.json</code> och <code>sv.json</code> läggs in i
-              Translate. Det är startpunkten.
+              <b>Importera</b> hämtar texterna direkt från PDH (engelskan och projektets
+              språk) och lägger in dem i Translate. Det är startpunkten.
             </li>
             <li>
               <span className="guide-step">Ändra</span>
@@ -90,10 +102,7 @@ export function Guide() {
         <section>
           <h2>Gör så här</h2>
           <ol className="guide-routine">
-            <li>
-              Hämta de senaste <code>en.json</code> och <code>sv.json</code> från PDH
-              (<code>pdh-react-frontend/src/i18n/locales/</code>) och <b>Importera</b>.
-            </li>
+            <li><b>Importera</b> och tryck <b>Hämta från PDH</b>.</li>
             <li><b>Granska med AI</b>. Bara nya och ändrade texter granskas.</li>
             <li>Gå igenom filtren <b>Ej godkänd</b> och <b>Engelska ändrad</b>. Rätta eller godkänn.</li>
             <li>
@@ -112,10 +121,11 @@ export function Guide() {
               <tr>
                 <th>Importera</th>
                 <td>
-                  Lägger till nya texter och uppdaterar engelska och svenska från PDH.
-                  Svenska du har ändrat behålls. Om en engelsk text har ändrats görs
-                  AI-granskningen om för den. Varnar om filerna verkar ha bytt plats
-                  eller vara gamla. Tar aldrig bort texter.
+                  Hämtar de senaste texterna från PDH: engelskan och projektets språk.
+                  Lägger till nya texter och uppdaterar engelska och svenska. Svenska du
+                  har ändrat behålls. Om en engelsk text har ändrats görs AI-granskningen
+                  om för den. Du ser vad som händer innan något sparas. Tar aldrig bort
+                  texter.
                 </td>
               </tr>
               <tr>
@@ -191,16 +201,33 @@ export function Guide() {
               skickar: i listan ser du då PDH:s aktuella text under <b>Före</b>.
             </dd>
 
+            <dt>Utvecklaren justerade min text innan den godkändes. Vad händer?</dt>
+            <dd>
+              Då är PDH:s text varken din eller den gamla. Vid nästa import behålls din
+              version och texten räknas fortfarande som ändrad (importen visar det som
+              "din ändring behålls"). Skickar du igen skriver din version över
+              utvecklarens. Vill du ha utvecklarens version: tryck <b>Återställ</b> vid
+              "Vid import" på sidan <b>Granska ändrade</b>.
+            </dd>
+
             <dt>En text har tagits bort i PDH men finns kvar i Translate.</dt>
             <dd>
               Import tar aldrig bort texter. Den ligger kvar men gör ingen skada. Skickas
               den, hoppar PDH över den och skriver det i sin rapport.
             </dd>
 
-            <dt>Jag valde fel filer vid import.</dt>
+            <dt>Kan jag hämta fel språk?</dt>
             <dd>
+              Nej. Varje projekt har ett språk som väljs när projektet skapas och inte
+              kan ändras. Import och <b>Skicka till PDH</b> använder alltid det språket.
+              Vill du översätta till ett nytt språk skapar du ett nytt projekt.
+            </dd>
+
+            <dt>Jag valde fel filer själv vid import.</dt>
+            <dd>
+              Gäller bara om du har valt filer själv i stället för att hämta från PDH.
               Importen varnar om filerna verkar ha bytt plats (och stoppar då) eller
-              saknar många texter. Har du ändå importerat fel: importera de rätta filerna.
+              saknar många texter. Har du ändå importerat fel: tryck <b>Hämta från PDH</b>.
               Dina egna ändringar har inte rörts, men AI-granskningen kan behöva köras om
               för texter vars engelska ändrades.
             </dd>
