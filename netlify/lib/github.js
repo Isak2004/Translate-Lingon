@@ -11,10 +11,15 @@ import { createSign } from 'node:crypto';
 
 export const API = 'https://api.github.com';
 
+export const BASE_BRANCH = 'main';
+export const LOCALES_DIR = 'pdh-react-frontend/src/i18n/locales';
+export const SOURCE_LOCALE = 'en';
+export const LOCALE_RE = /^[a-z]{2}(-[A-Z]{2})?$/;
+
 export function appConfig() {
   return {
     appId: process.env.PDH_GITHUB_APP_ID,
-    privateKey: (process.env.PDH_GITHUB_APP_PRIVATE_KEY || '').replace(/\n/g, '\n'),
+    privateKey: (process.env.PDH_GITHUB_APP_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
     repo: process.env.PDH_GITHUB_REPO || 'lingon/product-data-hub',
   };
 }

@@ -712,7 +712,31 @@ a:hover { text-decoration: underline; }
   border: 1px solid var(--error);
 }
 
+/* Resultatet av synken när ett projekt öppnas */
+.sync-notice {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  z-index: 50;
+  width: min(720px, calc(100vw - 32px));
+  margin: 0;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
 /* Skicka till PDH — listan i bekräftelsen */
+.push-section-title { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+.push-row-warning {
+  background: var(--amber-tint);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 12px;
+  color: var(--ink);
+}
 .push-list {
   display: flex;
   flex-direction: column;

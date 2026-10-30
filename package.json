@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test netlify/lib/pdh-locale-edit.test.js netlify/lib/push-to-pdh.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.0",

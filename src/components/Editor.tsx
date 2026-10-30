@@ -32,33 +32,32 @@ async function sourceHash(text: string): Promise<string> {
     .slice(0, 12);
 }
 
-// Exportformatet som PDH läser in. Bumpa versionen vid inkompatibla ändringar.
-const EXPORT_FORMAT = 'translate-lingon/v1';
+// Det som skickas till push-to-pdh för varje ändrad text.
+interface PushRow { key: string; text: string; src: string; before: string | null; }
 
-interface ExportEntry { en: string; src: string; sv: string; }
-
-interface BuiltExport {
-  payload: {
-    format: string;
-    source_locale: string;
-    locale: string;
-    exported_at: string;
-    keys: Record<string, ExportEntry>;
-  };
-  count: number;
+interface LocalPush {
+  rows: PushRow[];
   emptyCount: number;
   sourceChangedCount: number;
-  // För bekräftelsen före "Skicka till PDH". Skickas inte.
-  rows: PushRow[];
 }
 
-interface PushRow { key: string; en: string; before: string; after: string; }
+// Vad PDH:s main säger om texterna, från funktionens förhandsvisning.
+interface PushPreview {
+  base_sha: string;
+  commit_short: string;
+  report: {
+    sent: { key: string; en: string; before: string; after: string; warning?: string }[];
+    stopped: { key: string; reason: string }[];
+    alreadyInPdh: string[];
+  };
+}
 
 interface PushResult {
-  count: number;
-  branch: string;
-  branch_url: string;
   pr_url: string | null;
+  pr_number: number | null;
+  sent: number;
+  stopped: number;
+  closed: number[];
 }
 
 // ── Engelskan ändrad efter manuell text/godkännande ──
@@ -230,10 +229,16 @@ export function Editor() {
   const [pdhFetchError, setPdhFetchError] = useState('');
 
   const [showPushModal, setShowPushModal] = useState(false);
-  const [pushExport, setPushExport] = useState<BuiltExport | null>(null);
+  const [pushLocal, setPushLocal] = useState<LocalPush | null>(null);
+  const [pushPreview, setPushPreview] = useState<PushPreview | null>(null);
+  const [pushLoading, setPushLoading] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [pushResult, setPushResult] = useState<PushResult | null>(null);
   const [pushError, setPushError] = useState('');
+
+  const [syncing, setSyncing] = useState(false);
+  const [syncNotice, setSyncNotice] = useState<ImportWarning | null>(null);
+  const syncedProject = useRef<string | null>(null);
 
   const [saveStatus, setSaveStatus] = useState('');
   const [showAiConfirm, setShowAiConfirm] = useState(false);
@@ -252,6 +257,13 @@ export function Editor() {
     loadGlossary();
     loadAiFindings();
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Synk när projektet öppnas, när översättningarna och språket är laddade.
+  useEffect(() => {
+    if (!id || loading || !project || project.id !== id || syncedProject.current === id) return;
+    syncedProject.current = id;
+    syncFromPdh();
+  }, [loading, project, id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadProject() {
     const { data } = await supabase
@@ -413,20 +425,60 @@ export function Editor() {
     setPdhFetching(true);
     setPdhFetchError('');
     try {
-      const res = await fetch(`/.netlify/functions/pdh-locales?locale=${encodeURIComponent(locale)}`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setPdhFetchError(data.error || `Fel ${res.status}`);
-        return;
-      }
-      const plan = planImport(flatten(data.en), flatten(data.target), translations);
-      const date = data.commit?.date ? ` (${new Date(data.commit.date).toLocaleString('sv-SE')})` : '';
-      plan.source = `Från PDH, main-commit ${data.commit?.short ?? '?'}${date}`;
-      setImportPlan(plan);
+      setImportPlan(await fetchPlanFromPdh(locale));
     } catch (err) {
-      setPdhFetchError(`Kunde inte nå servern: ${(err as Error).message}`);
+      setPdhFetchError((err as Error).message);
     } finally {
       setPdhFetching(false);
+    }
+  }
+
+  async function fetchPlanFromPdh(locale: string): Promise<ImportPlan> {
+    let res: Response;
+    try {
+      res = await fetch(`/.netlify/functions/pdh-locales?locale=${encodeURIComponent(locale)}`);
+    } catch (err) {
+      throw new Error(`Kunde inte nå servern: ${(err as Error).message}`);
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Fel ${res.status}`);
+    const plan = planImport(flatten(data.en), flatten(data.target), translations);
+    const date = data.commit?.date ? ` (${new Date(data.commit.date).toLocaleString('sv-SE')})` : '';
+    plan.source = `Från PDH, main-commit ${data.commit?.short ?? '?'}${date}`;
+    return plan;
+  }
+
+  // Samma import som knappen, utan förhandsvisning. Följer samma regler, så den
+  // skriver aldrig över en text användaren har ändrat. Går det inte kan man
+  // jobba vidare på det som finns.
+  async function syncFromPdh() {
+    const locale = project?.target_language;
+    if (!locale) return;
+    setSyncing(true);
+    try {
+      const plan = await fetchPlanFromPdh(locale);
+      const stop = plan.warnings.find((w) => w.level === 'stop');
+      if (stop) {
+        setSyncNotice({ level: 'stop', text: `Texterna från PDH hämtades inte: ${stop.text}` });
+        return;
+      }
+      const parts = [
+        plan.newKeys > 0 && `nya texter: ${plan.newKeys}`,
+        plan.sourceChanged > 0 && `ändrad engelska: ${plan.sourceChanged}`,
+        plan.svUpdated > 0 && `uppdaterade av PDH: ${plan.svUpdated}`,
+        plan.roundTripped > 0 && `skickade texter som nu finns i PDH: ${plan.roundTripped}`,
+        plan.editsKept > 0 && `PDH har en annan text, din ändring behålls: ${plan.editsKept}`,
+      ].filter(Boolean);
+      if (parts.length === 0) return;
+      await importFiles(plan.enFlat, plan.svFlat);
+      setSyncNotice({ level: 'warn', text: `Hämtat från PDH: ${parts.join(', ')}.` });
+    } catch (err) {
+      setSyncNotice({
+        level: 'warn',
+        text: `Kunde inte hämta de senaste texterna från PDH: ${(err as Error).message}. Du kan jobba vidare med det som finns.`,
+      });
+    } finally {
+      setSyncing(false);
     }
   }
 
@@ -517,9 +569,10 @@ export function Editor() {
           imported_target_text: newTargetText,
         });
       } else {
-        const fields: Record<string, unknown> = {
-          imported_target_text: newTargetText,
-        };
+        const fields: Record<string, unknown> = {};
+        if (existing.imported_target_text !== newTargetText) {
+          fields.imported_target_text = newTargetText;
+        }
         if (existing.source_text !== newSourceText) {
           fields.source_text = newSourceText;
           fields.ai_reviewed_at = null;
@@ -536,7 +589,8 @@ export function Editor() {
           keysWithChangedText.push(key);
           keysToResetAi.add(key);
         }
-        toUpdate.push({ id: existing.id, fields });
+        // Bara rader där något ändras, så att en synk inte tar tusentals anrop.
+        if (Object.keys(fields).length > 0) toUpdate.push({ id: existing.id, fields });
       }
     }
 
@@ -722,13 +776,12 @@ export function Editor() {
     setAiFindings((prev) => prev.filter((f) => f.key !== t.key));
   }, []);
 
-  // ── Export av ändrade nycklar ──
+  // ── Skicka till PDH ──
+  // Texterna jämförs mot senast importerade sv.json (imported_target_text), inte
+  // mot förra skicket, så varje skick innehåller alla ändringar sedan importen.
+  // Funktionen kontrollerar dem mot PDH:s main och öppnar en pull request.
 
-  // Samma innehåll för nedladdning och "Skicka till PDH". Exporten jämför mot
-  // senast importerade sv.json (imported_target_text), inte mot förra exporten,
-  // så varje export innehåller alla ändringar sedan importen.
-  async function buildExport(): Promise<BuiltExport> {
-    const keys: Record<string, ExportEntry> = {};
+  async function buildPushRows(): Promise<LocalPush> {
     const rows: PushRow[] = [];
     let emptyCount = 0;
     let sourceChangedCount = 0;
@@ -742,101 +795,84 @@ export function Editor() {
         emptyCount++;
         continue;
       }
-      // Engelskan har ändrats efter vår text — måste granskas innan export
+      // Engelskan har ändrats efter vår text — måste granskas innan den skickas
       if (isSourceChanged(t)) {
         sourceChangedCount++;
         continue;
       }
-      keys[t.key] = {
-        en: t.source_text,
-        src: await sourceHash(t.source_text),
-        sv: t.target_text,
-      };
       rows.push({
         key: t.key,
-        en: t.source_text,
-        before: t.imported_target_text ?? '',
-        after: t.target_text,
+        text: t.target_text,
+        src: await sourceHash(t.source_text),
+        before: t.imported_target_text,
       });
     }
-
-    return {
-      payload: {
-        format: EXPORT_FORMAT,
-        source_locale: project?.source_language ?? 'en',
-        locale: project?.target_language ?? 'sv',
-        exported_at: new Date().toISOString(),
-        keys,
-      },
-      count: Object.keys(keys).length,
-      emptyCount,
-      sourceChangedCount,
-      rows,
-    };
+    return { rows, emptyCount, sourceChangedCount };
   }
 
-  function exportWarnings(built: BuiltExport): string[] {
+  function localPushWarnings(local: LocalPush): string[] {
     const out: string[] = [];
-    if (built.emptyCount > 0) {
-      out.push(`${built.emptyCount} ändrade nycklar hoppades över för att de har tom text.`);
+    if (local.emptyCount > 0) {
+      out.push(`${local.emptyCount} ändrade nycklar hoppades över för att de har tom text.`);
     }
-    if (built.sourceChangedCount > 0) {
+    if (local.sourceChangedCount > 0) {
       out.push(
-        `${built.sourceChangedCount} ändrade nycklar hoppades över för att engelskan har ändrats i PDH. ` +
+        `${local.sourceChangedCount} ändrade nycklar hoppades över för att engelskan har ändrats i PDH. ` +
         `Granska dem under filtret "Engelska ändrad" och skicka igen.`
       );
     }
     return out;
   }
 
-  async function handleExportChanged() {
-    const built = await buildExport();
-    for (const w of exportWarnings(built)) alert(`Varning: ${w}`);
-
-    if (built.count === 0) {
-      alert('Inga ändrade texter att exportera.');
-      return;
+  async function callPush(body: Record<string, unknown>) {
+    let res: Response;
+    try {
+      res = await fetch('/.netlify/functions/push-to-pdh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, locale: project?.target_language }),
+      });
+    } catch (err) {
+      throw new Error(`Kunde inte nå servern: ${(err as Error).message}`);
     }
-
-    const json = JSON.stringify(built.payload, null, 2) + '\n';
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${project?.target_language ?? 'sv'}-changes.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Fel ${res.status}`);
+    return data;
   }
-
-  // ── Skicka till PDH ──
-  // Funktionen committar bara exportfilen till branchen translate/<locale> i
-  // PDH-repot. Själva importen och kontrollerna görs av PDH (design D8).
 
   async function handleOpenPush() {
     setPushError('');
     setPushResult(null);
-    setPushExport(await buildExport());
+    setPushPreview(null);
+    setPushLocal(null);
+    setPushLoading(true);
     setShowPushModal(true);
+    try {
+      const local = await buildPushRows();
+      setPushLocal(local);
+      if (local.rows.length > 0) {
+        setPushPreview(await callPush({ mode: 'preview', rows: local.rows }) as PushPreview);
+      }
+    } catch (err) {
+      setPushError((err as Error).message);
+    } finally {
+      setPushLoading(false);
+    }
   }
 
   async function handleConfirmPush() {
-    if (!pushExport || pushExport.count === 0 || pushing) return;
+    if (!pushLocal || !pushPreview || pushing) return;
     setPushing(true);
     setPushError('');
     try {
-      const res = await fetch('/.netlify/functions/push-to-pdh', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(pushExport.payload),
+      const data = await callPush({
+        mode: 'send',
+        rows: pushLocal.rows,
+        base_sha: pushPreview.base_sha,
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setPushError(data.error || `Fel ${res.status}`);
-        return;
-      }
       setPushResult(data as PushResult);
     } catch (err) {
-      setPushError(`Kunde inte nå servern: ${(err as Error).message}`);
+      setPushError((err as Error).message);
     } finally {
       setPushing(false);
     }
@@ -1188,8 +1224,8 @@ export function Editor() {
 
           <div className="topbar-spacer" />
 
-          <button className="action-btn import-btn" onClick={handleImport} disabled={importing}>
-            {importing ? 'Importerar...' : 'Importera'}
+          <button className="action-btn import-btn" onClick={handleImport} disabled={importing || syncing}>
+            {importing ? 'Importerar...' : 'Hämta igen'}
           </button>
           {manuallyChangedCount > 0 && (
             <Link to={`/project/${id}/review`} className="action-btn review-btn">
@@ -1202,13 +1238,6 @@ export function Editor() {
             disabled={aiReviewing || translations.length === 0}
           >
             {aiReviewing ? '🤖 Granskar...' : '🤖 Granska med AI'}
-          </button>
-          <button
-            className="action-btn download-btn"
-            onClick={handleExportChanged}
-            disabled={translations.length === 0}
-          >
-            Exportera ändrade
           </button>
           <button
             className="action-btn download-btn"
@@ -1322,7 +1351,7 @@ export function Editor() {
           {filteredTranslations.length === 0 ? (
             <div className="no-results">
               {translations.length === 0
-                ? 'Inga översättningar ännu. Klicka "Importera" för att ladda in filer.'
+                ? 'Inga översättningar ännu. Klicka "Hämta igen" för att hämta dem från PDH.'
                 : 'Inga nycklar matchar.'}
             </div>
           ) : (
@@ -1585,6 +1614,23 @@ export function Editor() {
         </div>
       )}
 
+      {/* Synk när projektet öppnas */}
+      {syncing && (
+        <div className="loading-overlay">
+          <div className="loading-box">
+            <div className="spinner" />
+            <p>Hämtar senaste texter från PDH…</p>
+          </div>
+        </div>
+      )}
+
+      {syncNotice && (
+        <div className={`sync-notice import-warning import-warning-${syncNotice.level}`}>
+          <span>{syncNotice.text}</span>
+          <button className="modal-close" onClick={() => setSyncNotice(null)} title="Stäng">✕</button>
+        </div>
+      )}
+
       {/* Importstatistik */}
       {importSummary && (
         <div className="modal-backdrop" onClick={() => setImportSummary(null)}>
@@ -1634,7 +1680,7 @@ export function Editor() {
       )}
 
       {/* Skicka till PDH — bekräftelse med alla texter som skickas */}
-      {showPushModal && pushExport && (
+      {showPushModal && (
         <div className="modal-backdrop" onClick={closePushModal}>
           <div
             className="modal"
@@ -1649,55 +1695,91 @@ export function Editor() {
             </div>
             <div className="modal-body" style={{ lineHeight: 1.6 }}>
               {pushResult ? (
-                <>
-                  <p style={{ margin: '0 0 12px' }}>
-                    {pushResult.count} ändrade texter skickades till branchen{' '}
-                    <code>{pushResult.branch}</code>. PDH importerar dem och lägger
-                    resultatet i en pull request som en utvecklare granskar.
-                  </p>
-                  <p style={{ margin: '0 0 20px' }}>
-                    {pushResult.pr_url ? (
+                pushResult.pr_url ? (
+                  <>
+                    <p style={{ margin: '0 0 12px' }}>
+                      {pushResult.sent} ändrade texter skickades. En utvecklare granskar
+                      pull requesten innan något går live.
+                      {pushResult.closed.length > 0 && (
+                        <> Den ersätter {pushResult.closed.map((n) => `#${n}`).join(', ')}.</>
+                      )}
+                    </p>
+                    <p style={{ margin: '0 0 20px' }}>
                       <a href={pushResult.pr_url} target="_blank" rel="noreferrer">
-                        Öppna pull requesten
+                        Öppna pull request #{pushResult.pr_number}
                       </a>
-                    ) : (
-                      <a href={pushResult.branch_url} target="_blank" rel="noreferrer">
-                        Öppna branchen
-                      </a>
-                    )}
-                  </p>
+                    </p>
+                  </>
+                ) : (
+                  <p style={{ margin: '0 0 20px' }}>Inget skickades: allt finns redan i PDH.</p>
+                )
+              ) : pushLoading ? (
+                <p style={{ margin: '0 0 20px' }}>Hämtar från PDH och kontrollerar texterna…</p>
+              ) : pushPreview ? (
+                <>
+                  {pushPreview.report.sent.length > 0 ? (
+                    <p style={{ margin: '0 0 12px' }}>
+                      Dessa {pushPreview.report.sent.length} ändrade texter skickas till PDH
+                      (jämfört med main-commit {pushPreview.commit_short}). Där granskar en
+                      utvecklare dem innan något går live. Alla ändringar sedan senaste
+                      import från PDH följer med, även sådana du redan har skickat.
+                    </p>
+                  ) : (
+                    <p style={{ margin: '0 0 12px' }}>Det finns inget nytt att skicka.</p>
+                  )}
+                  {pushPreview.report.alreadyInPdh.length > 0 && (
+                    <p style={{ margin: '0 0 12px' }}>
+                      ✓ {pushPreview.report.alreadyInPdh.length} av dina ändrade texter finns
+                      redan i PDH och behöver inte skickas.
+                    </p>
+                  )}
                 </>
-              ) : pushExport.count === 0 ? (
+              ) : pushLocal && !pushError ? (
                 <p style={{ margin: '0 0 20px' }}>Inga ändrade texter att skicka.</p>
-              ) : (
-                <p style={{ margin: '0 0 12px' }}>
-                  Dessa {pushExport.count} ändrade texter skickas till PDH. Där granskar
-                  en utvecklare dem innan något går live. Alla ändringar sedan senaste
-                  import från PDH följer med, även sådana du redan har skickat.
-                </p>
-              )}
-              {!pushResult && exportWarnings(pushExport).map((w) => (
+              ) : null}
+              {!pushResult && pushLocal && localPushWarnings(pushLocal).map((w) => (
                 <p key={w} style={{ margin: '0 0 12px', color: 'var(--ink)' }}>
                   ⚠ {w}
                 </p>
               ))}
-              {!pushResult && pushExport.rows.length > 0 && (
-                <div className="push-list">
-                  {pushExport.rows.map((r) => (
-                    <div key={r.key} className="push-row">
-                      <code className="push-row-key">{r.key}</code>
-                      <div className="push-row-en">{r.en}</div>
-                      <div className="push-row-text">
-                        <span className="push-row-label">Före</span>
-                        <span className="push-row-before">{r.before || '(tom)'}</span>
+              {!pushResult && pushPreview && pushPreview.report.stopped.length > 0 && (
+                <>
+                  <h3 className="push-section-title">
+                    Stoppas ({pushPreview.report.stopped.length})
+                  </h3>
+                  <div className="push-list">
+                    {pushPreview.report.stopped.map((r) => (
+                      <div key={r.key} className="push-row">
+                        <code className="push-row-key">{r.key}</code>
+                        <div>{r.reason}</div>
                       </div>
-                      <div className="push-row-text">
-                        <span className="push-row-label">Efter</span>
-                        <span className="push-row-after">{r.after}</span>
+                    ))}
+                  </div>
+                </>
+              )}
+              {!pushResult && pushPreview && pushPreview.report.sent.length > 0 && (
+                <>
+                  <h3 className="push-section-title">
+                    Skickas ({pushPreview.report.sent.length})
+                  </h3>
+                  <div className="push-list">
+                    {pushPreview.report.sent.map((r) => (
+                      <div key={r.key} className="push-row">
+                        <code className="push-row-key">{r.key}</code>
+                        <div className="push-row-en">{r.en}</div>
+                        <div className="push-row-text">
+                          <span className="push-row-label">Före</span>
+                          <span className="push-row-before">{r.before || '(tom)'}</span>
+                        </div>
+                        <div className="push-row-text">
+                          <span className="push-row-label">Efter</span>
+                          <span className="push-row-after">{r.after}</span>
+                        </div>
+                        {r.warning && <div className="push-row-warning">⚠ {r.warning}</div>}
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                </>
               )}
               {pushError && (
                 <p style={{ margin: '0 0 12px', color: 'var(--error)' }}>{pushError}</p>
@@ -1709,9 +1791,9 @@ export function Editor() {
                   onClick={closePushModal}
                   disabled={pushing}
                 >
-                  {pushResult || pushExport.count === 0 ? 'Stäng' : 'Avbryt'}
+                  {pushResult || !pushPreview?.report.sent.length ? 'Stäng' : 'Avbryt'}
                 </button>
-                {!pushResult && pushExport.count > 0 && (
+                {!pushResult && pushPreview && pushPreview.report.sent.length > 0 && (
                   <button
                     className="action-btn download-btn"
                     onClick={handleConfirmPush}

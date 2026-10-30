@@ -9,12 +9,9 @@
 // texter finns i PDH:s webbapp), men funktionen lämnar bara ut locale-filer.
 // Miljövariabler: se netlify/lib/github.js.
 
-import { appConfig, gh, installationToken, getRawFile } from '../lib/github.js';
-
-const BRANCH = 'main';
-const LOCALES_DIR = 'pdh-react-frontend/src/i18n/locales';
-const SOURCE_LOCALE = 'en';
-const LOCALE_RE = /^[a-z]{2}(-[A-Z]{2})?$/;
+import {
+  appConfig, gh, installationToken, getRawFile, BASE_BRANCH, LOCALES_DIR, LOCALE_RE, SOURCE_LOCALE,
+} from '../lib/github.js';
 
 const json = (statusCode, body) => ({
   statusCode,
@@ -45,7 +42,7 @@ export const handler = async (event) => {
   try {
     const token = await installationToken(appId, privateKey, repo, { contents: 'read' });
     // Läs allt från en och samma commit, så att en.json och sv.json hör ihop.
-    const head = await gh(`/repos/${repo}/commits/${BRANCH}`, token);
+    const head = await gh(`/repos/${repo}/commits/${BASE_BRANCH}`, token);
     const sha = head.sha;
     const commit = {
       sha,

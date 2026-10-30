@@ -22,13 +22,13 @@ export function Guide() {
         <section className="guide-answer">
           <h2>Kan jag förstöra något?</h2>
           <p className="guide-lead">
-            Nej, inte genom att importera, AI-granska eller skicka till PDH. Alla tre
-            går att köra hur många gånger som helst.
+            Nej, inte genom att hämta från PDH, AI-granska eller skicka till PDH. Alla
+            tre går att köra hur många gånger som helst.
           </p>
           <ul>
             <li>
-              <b>Importera</b> skriver aldrig över texter du har ändrat. Du ser först vad
-              importen kommer att göra och bekräftar innan något sparas.
+              <b>Hämtningen från PDH</b> skriver aldrig över texter du har ändrat. Den sker
+              av sig själv varje gång du öppnar ett projekt.
             </li>
             <li>
               <b>Granska med AI</b> ändrar aldrig någon text. Den flaggar bara texter
@@ -50,11 +50,11 @@ export function Guide() {
           <h2>Det viktigaste att förstå</h2>
           <p className="guide-lead">
             En text räknas som <b>ändrad</b> så länge din svenska skiljer sig från PDH:s
-            svenska vid senaste import.
+            svenska vid senaste hämtningen.
           </p>
           <p>
-            Translate minns hur varje svensk text såg ut när den senast importerades
-            från PDH. Allt annat följer av det:
+            Translate minns hur varje svensk text såg ut när den senast hämtades från
+            PDH. Allt annat följer av det:
           </p>
           <ul>
             <li><b>Skicka till PDH</b> skickar alla ändrade texter, varje gång.</li>
@@ -66,9 +66,9 @@ export function Guide() {
           <h2>En texts rundtur</h2>
           <ol className="guide-cycle">
             <li>
-              <span className="guide-step">Importera</span>
-              <b>Importera</b> hämtar texterna direkt från PDH (engelskan och projektets
-              språk) och lägger in dem i Translate. Det är startpunkten.
+              <span className="guide-step">Öppna projektet</span>
+              Translate hämtar de senaste texterna från PDH (engelskan och projektets
+              språk). Det är startpunkten, och det sker varje gång du öppnar projektet.
             </li>
             <li>
               <span className="guide-step">Ändra</span>
@@ -77,7 +77,8 @@ export function Guide() {
             </li>
             <li>
               <span className="guide-step">Skicka till PDH</span>
-              Alla ändrade texter skickas. I PDH blir det en pull request. I Translate
+              Alla ändrade texter skickas. I PDH blir det en pull request, och en
+              tidigare öppen pull request från Translate ersätts av den nya. I Translate
               händer ingenting: texterna räknas fortfarande som ändrade.
             </li>
             <li>
@@ -86,31 +87,27 @@ export function Guide() {
               finns dina texter i PDH.
             </li>
             <li>
-              <span className="guide-step">Importera igen</span>
-              Nästa import innehåller dina texter, eftersom de nu finns i PDH. PDH:s
+              <span className="guide-step">Öppna projektet igen</span>
+              Nästa hämtning innehåller dina texter, eftersom de nu finns i PDH. PDH:s
               text och din är likadana, så de räknas inte längre som ändrade.
               Rundturen är klar.
             </li>
           </ol>
           <p>
-            Importerar du innan utvecklaren har godkänt ligger dina texter kvar som
-            ändrade och skickas med nästa gång. Det är ofarligt: PDH räknar en text som
-            redan finns där som oförändrad.
+            Öppnar du projektet innan utvecklaren har godkänt ligger dina texter kvar som
+            ändrade och skickas med nästa gång. Det är ofarligt: en text som redan finns
+            i PDH skickas inte igen.
           </p>
         </section>
 
         <section>
           <h2>Gör så här</h2>
           <ol className="guide-routine">
-            <li><b>Importera</b> och tryck <b>Hämta från PDH</b>.</li>
+            <li>Öppna projektet. De senaste texterna hämtas av sig själva.</li>
             <li><b>Granska med AI</b>. Bara nya och ändrade texter granskas.</li>
             <li>Gå igenom filtren <b>Ej godkänd</b> och <b>Engelska ändrad</b>. Rätta eller godkänn.</li>
-            <li>
-              Har det gått ett tag sedan importen? Importera igen precis innan du
-              skickar, så ser du PDH:s aktuella text i listan.
-            </li>
             <li><b>Skicka till PDH</b>. Läs igenom listan och tryck <b>Skicka</b>.</li>
-            <li>När utvecklaren har godkänt: importera igen.</li>
+            <li>När utvecklaren har godkänt: öppna projektet igen.</li>
           </ol>
         </section>
 
@@ -119,13 +116,14 @@ export function Guide() {
           <table className="guide-table">
             <tbody>
               <tr>
-                <th>Importera</th>
+                <th>Hämta igen</th>
                 <td>
                   Hämtar de senaste texterna från PDH: engelskan och projektets språk.
-                  Lägger till nya texter och uppdaterar engelska och svenska. Svenska du
-                  har ändrat behålls. Om en engelsk text har ändrats görs AI-granskningen
-                  om för den. Du ser vad som händer innan något sparas. Tar aldrig bort
-                  texter.
+                  Sker av sig själv när du öppnar ett projekt, men här kan du göra det
+                  när du vill och se vad som händer innan något sparas. Lägger till nya
+                  texter och uppdaterar engelska och svenska. Svenska du har ändrat
+                  behålls. Om en engelsk text har ändrats görs AI-granskningen om för
+                  den. Tar aldrig bort texter.
                 </td>
               </tr>
               <tr>
@@ -157,15 +155,13 @@ export function Guide() {
                 <td>Tar bort din ändring och går tillbaka till PDH:s svenska. Din text finns kvar i historiken.</td>
               </tr>
               <tr>
-                <th>Exportera ändrade</th>
-                <td>Laddar ner samma fil som skickas till PDH. Ändrar ingenting.</td>
-              </tr>
-              <tr>
                 <th>Skicka till PDH</th>
                 <td>
-                  Visar alla ändrade texter och skickar dem efter bekräftelse. Ändrar
-                  ingenting i Translate. Skickar du igen ersätter det förra skicket och
-                  innehåller alla ändringar sedan senaste import.
+                  Kontrollerar alla ändrade texter mot PDH och visar vad som skickas, vad
+                  som stoppas och vad som redan finns där. Efter bekräftelse skapas en
+                  pull request. Ändrar ingenting i Translate. Skickar du igen ersätter
+                  den nya pull requesten den förra och innehåller alla ändringar sedan
+                  senaste hämtningen.
                 </td>
               </tr>
             </tbody>
@@ -178,14 +174,22 @@ export function Guide() {
             <dt>Jag har skickat, men texterna står fortfarande som ändrade.</dt>
             <dd>
               Det är rätt. De räknas som ändrade tills utvecklaren har godkänt i PDH och
-              du har importerat igen.
+              du har öppnat projektet igen.
             </dd>
 
             <dt>Vilka texter skickas?</dt>
             <dd>
-              Alla texter där din svenska skiljer sig från PDH:s vid senaste import.
+              Alla texter där din svenska skiljer sig från PDH:s vid senaste hämtningen.
               Tomma texter och texter under <b>Engelska ändrad</b> hålls tillbaka tills du
-              har tittat på dem. Du ser hela listan innan du skickar.
+              har tittat på dem. Du ser hela listan innan du skickar, och under{' '}
+              <b>Stoppas</b> står varför en text inte kan skickas.
+            </dd>
+
+            <dt>Utvecklaren säger att pull requesten har en konflikt.</dt>
+            <dd>
+              Det betyder att någon i PDH har ändrat samma text, eller texten på raden
+              intill, medan pull requesten låg öppen. Tryck <b>Skicka till PDH</b> igen.
+              Då skapas en ny pull request från PDH:s senaste version och den gamla stängs.
             </dd>
 
             <dt>Vad betyder "Engelska ändrad"?</dt>
@@ -197,36 +201,36 @@ export function Guide() {
 
             <dt>Någon har ändrat samma svenska text direkt i PDH. Vems text gäller?</dt>
             <dd>
-              Din, när du skickar. Därför är det bra att importera precis innan du
-              skickar: i listan ser du då PDH:s aktuella text under <b>Före</b>.
+              Din, när du skickar. I listan ser du PDH:s aktuella text under <b>Före</b>,
+              och en varning om den har ändrats sedan senaste hämtningen.
             </dd>
 
             <dt>Utvecklaren justerade min text innan den godkändes. Vad händer?</dt>
             <dd>
-              Då är PDH:s text varken din eller den gamla. Vid nästa import behålls din
-              version och texten räknas fortfarande som ändrad (importen visar det som
-              "din ändring behålls"). Skickar du igen skriver din version över
+              Då är PDH:s text varken din eller den gamla. Vid nästa hämtning behålls din
+              version och texten räknas fortfarande som ändrad (det står som "din ändring
+              behålls"). Skickar du igen skriver din version över
               utvecklarens. Vill du ha utvecklarens version: tryck <b>Återställ</b> vid
               "Vid import" på sidan <b>Granska ändrade</b>.
             </dd>
 
             <dt>En text har tagits bort i PDH men finns kvar i Translate.</dt>
             <dd>
-              Import tar aldrig bort texter. Den ligger kvar men gör ingen skada. Skickas
-              den, hoppar PDH över den och skriver det i sin rapport.
+              Hämtningen tar aldrig bort texter. Den ligger kvar men gör ingen skada. Är
+              den ändrad stoppas den när du skickar, och listan visar varför.
             </dd>
 
             <dt>Kan jag hämta fel språk?</dt>
             <dd>
               Nej. Varje projekt har ett språk som väljs när projektet skapas och inte
-              kan ändras. Import och <b>Skicka till PDH</b> använder alltid det språket.
+              kan ändras. Hämtning och <b>Skicka till PDH</b> använder alltid det språket.
               Vill du översätta till ett nytt språk skapar du ett nytt projekt.
             </dd>
 
-            <dt>Jag valde fel filer själv vid import.</dt>
+            <dt>Jag valde fel filer själv under Hämta igen.</dt>
             <dd>
               Gäller bara om du har valt filer själv i stället för att hämta från PDH.
-              Importen varnar om filerna verkar ha bytt plats (och stoppar då) eller
+              Då varnar Translate om filerna verkar ha bytt plats (och stoppar då) eller
               saknar många texter. Har du ändå importerat fel: tryck <b>Hämta från PDH</b>.
               Dina egna ändringar har inte rörts, men AI-granskningen kan behöva köras om
               för texter vars engelska ändrades.

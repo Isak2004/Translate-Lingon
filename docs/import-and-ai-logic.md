@@ -2,6 +2,8 @@
 
 ## Import
 
+Körs automatiskt när ett projekt öppnas (utan förhandsvisning, med en kort sammanfattning) och manuellt via "Hämta igen". Bara rader där något ändras skrivs till databasen. Stoppvarningar (filerna verkar ha bytt plats) gör att den automatiska hämtningen avbryts.
+
 ### Nya nycklar
 Läggs in i databasen. Om nyckeln redan finns (t.ex. från en tidigare avbruten import) ignoreras den.
 
@@ -46,9 +48,11 @@ Filtret "Engelska ändrad" visar dessa nycklar. Raden visar tidigare och nuvaran
 
 Att redigera och spara texten löser också flaggan.
 
-### Vid export
+### Vid skick till PDH
 Nycklar med ändrad engelska hoppas över, med en varning. Annars skulle en svensk text skriven för gammal engelska skickas till PDH med den nya engelskans hash och passera PDH:s kontroll.
 
-## Exportformat
+## Skicka till PDH
 
-"Exportera ändrade" skriver `sv-changes.json` i formatet `translate-lingon/v1`: en platt map nyckel → `{ en, src, sv }` där `src` är sha256 av engelskan (12 första hex-tecknen, samma som PDH:s `source_hash`). Bara ändrade, icke-tomma texter tas med.
+`netlify/functions/push-to-pdh.js` har två lägen. `preview` läser `en.json`, `<språk>.json` och `<språk>.sources.json` från PDH:s main och kontrollerar varje text (`netlify/lib/pdh-locale-edit.js`): nyckeln finns, `src` (sha256 av engelskan, 12 första hex-tecknen, samma som PDH:s `source_hash`) stämmer, texten är inte tom, platshållarna stämmer. `send` kör samma kontroll mot samma commit, gör en commit med de två filerna på en ny branch `translate/<språk>-ÅÅÅÅ-MM-DD-TTMM`, öppnar en pull request och stänger äldre sådana.
+
+Bara de skickade värdena byts, resten av filerna är orörda byte för byte. Därför visar pull requesten bara de ändrade raderna och git-mergen kan smälta ihop den med main. Kan filen inte skrivas tillbaka exakt avbryts skicket. Design: `docs/pdh/SKICKA_TILL_PDH_ALTERNATIV.md`.
