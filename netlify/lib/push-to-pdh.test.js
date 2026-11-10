@@ -43,8 +43,9 @@ async function fakeGitHub(url, init = {}) {
   if (path === `/repos/${REPO}/installation`) return respond(200, { id: 1 });
   if (path === '/app/installations/1/access_tokens') return respond(200, { token: 't' });
   if (path === `/repos/${REPO}/commits/main`) return respond(200, { sha: SHA });
-  if (path.startsWith(`/repos/${REPO}/contents/${DIR}/`)) {
-    const raw = files[path.split('/').pop()];
+  if (path.startsWith(`/repos/${REPO}/contents/`)) {
+    const rel = path.slice(`/repos/${REPO}/contents/`.length);
+    const raw = rel.startsWith(`${DIR}/`) ? files[rel.split('/').pop()] : files[rel];
     return raw === undefined ? respond(404, {}) : new Response(raw, { status: 200 });
   }
   if (method === 'POST' && path.endsWith('/git/blobs')) return respond(201, { sha: `blob${calls.length}` });
@@ -125,6 +126,21 @@ test('send gör en commit med båda filerna ovanpå base_sha och öppnar en PR',
   assert.equal(pr.body.base, 'main');
   assert.equal(pr.body.head, ref.body.ref.replace('refs/heads/', ''));
   assert.match(pr.body.body, /Spara nu/);
+});
+
+test('en berörd kopia i PDH följer med i samma commit', async () => {
+  const labels = 'pdh-django-backend/assistant/ui_labels.json';
+  files[labels] = write({ labels: { 'common.save': { en: 'Save', sv: 'Spara' } } });
+  const { data } = await call({ mode: 'send', locale: 'sv', rows: [row], base_sha: SHA });
+  assert.equal(data.sent, 1);
+  const [tree] = find('POST', '/git/trees');
+  assert.deepEqual(
+    tree.body.tree.map((t) => t.path).sort(),
+    [labels, `${DIR}/sv.json`, `${DIR}/sv.sources.json`],
+  );
+  const blobs = find('POST', '/git/blobs').map((b) => b.body.content);
+  assert.ok(blobs.some((c) => c.includes('"sv": "Spara nu"')));
+  assert.match(find('POST', '/pulls')[0].body.body, /ui_labels\.json/);
 });
 
 test('send läser filerna från base_sha, inte från senaste main', async () => {

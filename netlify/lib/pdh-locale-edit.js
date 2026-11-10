@@ -56,9 +56,40 @@ function leaves(node, prefix = '', out = new Map()) {
   return out;
 }
 
+// ── Kopior av texterna på andra ställen i PDH ──
+// Backend kan inte läsa frontendens språkfiler, så PDH har kopior av några
+// etiketter. PDH:s tester kräver att de stämmer med <locale>.json, så de måste
+// ändras i samma commit. Varje kopia vet själv vilka nycklar den har.
+
+export function mirrorFiles(locale) {
+  return [
+    {
+      // AI-assistentens etiketter, `manage.py sync_ui_labels` i PDH.
+      path: 'pdh-django-backend/assistant/ui_labels.json',
+      apply(data, key, text) {
+        const entry = data.labels?.[key];
+        if (!entry || typeof entry !== 'object' || entry[locale] === text) return false;
+        entry[locale] = text;
+        return true;
+      },
+    },
+    {
+      // Flikarnas namn i Excel-exporten = article.detail.tab.<flik>.
+      path: `pdh-django-backend/exports/locales/${locale}.json`,
+      apply(data, key, text) {
+        const tab = key.match(/^article\.detail\.tab\.([^.]+)$/)?.[1];
+        if (!tab || !data.tabs || !Object.hasOwn(data.tabs, tab) || data.tabs[tab] === text) return false;
+        data.tabs[tab] = text;
+        return true;
+      },
+    },
+  ];
+}
+
 // rows: [{ key, text, src, before }]. src = hashen av den engelska texten
 // granskades mot, before = PDH:s text vid senaste import i Translate.
-export function planEdit({ rawEn, rawTarget, rawSources, rows, locale = 'sv' }) {
+// mirrors: { sökväg: filens innehåll eller null }, för filerna i mirrorFiles().
+export function planEdit({ rawEn, rawTarget, rawSources, rows, locale = 'sv', mirrors = {} }) {
   const en = leaves(JSON.parse(rawEn));
   const targetTree = parseExact(rawTarget, `${locale}.json`);
   const target = leaves(targetTree);
@@ -106,9 +137,25 @@ export function planEdit({ rawEn, rawTarget, rawSources, rows, locale = 'sv' }) 
     );
   }
 
+  // En kopia som inte berörs läses aldrig strikt, så ett ändrat format i en fil
+  // vi inte skriver stoppar inget.
+  const mirrorsOut = {};
+  report.mirrored = [];
+  for (const mirror of mirrorFiles(locale)) {
+    const raw = mirrors[mirror.path];
+    if (typeof raw !== 'string') continue;
+    const data = JSON.parse(raw);
+    const keys = report.sent.filter((r) => mirror.apply(data, r.key, r.after)).map((r) => r.key);
+    if (keys.length === 0) continue;
+    parseExact(raw, mirror.path.split('/').slice(-2).join('/'));
+    mirrorsOut[mirror.path] = serialize(data);
+    report.mirrored.push({ path: mirror.path, keys });
+  }
+
   return {
     targetOut: serialize(targetTree),
     sourcesOut: serialize({ ...sources, keys: sources.keys ?? sourceKeys }),
+    mirrorsOut,
     report,
   };
 }
@@ -144,6 +191,13 @@ export function renderPrBody(report) {
   }
   if (shown < report.sent.length) {
     lines.push('', `…och ${report.sent.length - shown} till, se diffen.`);
+  }
+
+  if (report.mirrored?.length > 0) {
+    lines.push('', '**Kopior som uppdaterats i samma commit:**', '');
+    for (const m of report.mirrored) {
+      lines.push(`- \`${m.path}\`: ${m.keys.map((k) => `\`${k}\``).join(', ')}`);
+    }
   }
 
   if (report.stopped.length > 0) {

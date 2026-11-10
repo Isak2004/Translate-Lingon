@@ -159,3 +159,67 @@ test('PR-beskrivningen kortas av innan GitHubs gräns', () => {
   assert.ok(body.length < 65536);
   assert.match(body, /till, se diffen/);
 });
+
+// ── Kopior av texterna på andra ställen i PDH ──
+
+const LABELS = 'pdh-django-backend/assistant/ui_labels.json';
+const EXPORT = 'pdh-django-backend/exports/locales/sv.json';
+const tabEn = { article: { detail: { tab: { materials: 'Materials', media: 'Media' } } }, nav: { home: 'Home' } };
+const tabSv = { article: { detail: { tab: { materials: 'Material & inköp', media: 'Media' } } }, nav: { home: 'Hem' } };
+const tabSources = { keys: { 'article.detail.tab.materials': srcOf('Materials'), 'nav.home': srcOf('Home') } };
+const labels = {
+  $comment: ['Generated.'],
+  labels: {
+    'article.detail.tab.materials': { en: 'Materials', sv: 'Material & inköp' },
+    'nav.home': { en: 'Home', sv: 'Hem' },
+  },
+};
+const exportSv = { about: 'Om', tabs: { materials: 'Material & inköp', media: 'Media' } };
+
+function runMirrors(rows, mirrors = { [LABELS]: write(labels), [EXPORT]: write(exportSv) }) {
+  return planEdit({
+    rawEn: write(tabEn), rawTarget: write(tabSv), rawSources: write(tabSources), rows, mirrors,
+  });
+}
+
+test('en fliketikett uppdateras i båda kopiorna, en rad var', () => {
+  const { mirrorsOut, report } = runMirrors([
+    row('article.detail.tab.materials', 'Material & leverantör', 'Materials', 'Material & inköp'),
+  ]);
+  assert.equal(changedLines(write(labels), mirrorsOut[LABELS]), 1);
+  assert.equal(changedLines(write(exportSv), mirrorsOut[EXPORT]), 1);
+  assert.equal(JSON.parse(mirrorsOut[EXPORT]).tabs.materials, 'Material & leverantör');
+  assert.deepEqual(report.mirrored.map((m) => m.path), [LABELS, EXPORT]);
+});
+
+test('en etikett som bara finns i assistentens kopia rör inte exporten', () => {
+  const { mirrorsOut } = runMirrors([row('nav.home', 'Start', 'Home', 'Hem')]);
+  assert.deepEqual(Object.keys(mirrorsOut), [LABELS]);
+  assert.equal(JSON.parse(mirrorsOut[LABELS]).labels['nav.home'].sv, 'Start');
+});
+
+test('texter som inte har kopior lämnar kopiorna orörda', () => {
+  const { mirrorsOut, report } = run([row('common.save', 'Spara nu', 'Save', 'Spara')], {
+    mirrors: { [LABELS]: write(labels), [EXPORT]: write(exportSv) },
+  });
+  assert.deepEqual(mirrorsOut, {});
+  assert.deepEqual(report.mirrored, []);
+});
+
+test('saknade kopior hoppas över, stoppade texter kopieras inte', () => {
+  const { mirrorsOut } = runMirrors(
+    [row('article.detail.tab.materials', 'X', 'Old english', 'Material & inköp')],
+    { [LABELS]: write(labels), [EXPORT]: null },
+  );
+  assert.deepEqual(mirrorsOut, {});
+});
+
+test('ett ändrat format stoppar bara om kopian faktiskt ska skrivas', () => {
+  const odd = JSON.stringify(labels, null, 4) + '\n';
+  assert.doesNotThrow(() => runMirrors([row('article.detail.tab.media', 'Bilder', 'Media', 'Media')], {
+    [LABELS]: odd, [EXPORT]: write(exportSv),
+  }));
+  assert.throws(() => runMirrors([row('nav.home', 'Start', 'Home', 'Hem')], {
+    [LABELS]: odd, [EXPORT]: write(exportSv),
+  }), FormatError);
+});

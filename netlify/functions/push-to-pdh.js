@@ -6,8 +6,9 @@
 //
 //   POST { mode: "send", locale, rows, base_sha }
 //     Kontrollerar igen mot samma commit, skapar en ny branch från den med
-//     <locale>.json och <locale>.sources.json, öppnar en pull request och stänger
-//     äldre "Skicka"-pull requests (den nya innehåller allt de hade).
+//     <locale>.json, <locale>.sources.json och de kopior i PDH som berörs (se
+//     mirrorFiles), öppnar en pull request och stänger äldre "Skicka"-pull
+//     requests (den nya innehåller allt de hade).
 //     → { pr_url, pr_number, sent, stopped, closed }
 //
 // rows: [{ key, text, src, before }], se netlify/lib/pdh-locale-edit.js.
@@ -17,7 +18,7 @@
 import {
   appConfig, gh, installationToken, getRawFile, BASE_BRANCH, LOCALES_DIR, LOCALE_RE, SOURCE_LOCALE,
 } from '../lib/github.js';
-import { FormatError, planEdit, renderPrBody } from '../lib/pdh-locale-edit.js';
+import { FormatError, mirrorFiles, planEdit, renderPrBody } from '../lib/pdh-locale-edit.js';
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const SHA_RE = /^[0-9a-f]{40}$/;
@@ -56,17 +57,20 @@ function validateRequest(payload) {
 
 async function readPlan(repo, locale, rows, sha, token) {
   const read = (name) => getRawFile(repo, `${LOCALES_DIR}/${name}`, sha, token);
-  const [rawEn, rawTarget, rawSources] = await Promise.all([
+  const mirrorPaths = mirrorFiles(locale).map((m) => m.path);
+  const [rawEn, rawTarget, rawSources, ...rawMirrors] = await Promise.all([
     read(`${SOURCE_LOCALE}.json`), read(`${locale}.json`), read(`${locale}.sources.json`),
+    ...mirrorPaths.map((path) => getRawFile(repo, path, sha, token)),
   ]);
   if (rawEn === null) throw new FormatError(`Hittade inte ${SOURCE_LOCALE}.json i PDH.`);
   if (rawTarget === null) throw new FormatError(`PDH har ingen ${locale}.json.`);
   if (rawSources === null) throw new FormatError(`PDH har ingen ${locale}.sources.json.`);
-  return planEdit({ rawEn, rawTarget, rawSources, rows, locale });
+  const mirrors = Object.fromEntries(mirrorPaths.map((path, i) => [path, rawMirrors[i]]));
+  return planEdit({ rawEn, rawTarget, rawSources, rows, locale, mirrors });
 }
 
-// En commit med båda filerna, ovanpå base_sha.
-async function createCommit(repo, locale, baseSha, targetOut, sourcesOut, message, token) {
+// En commit med alla ändrade filer, ovanpå base_sha.
+async function createCommit(repo, baseSha, files, message, token) {
   const blob = async (path, content) => {
     const { sha } = await gh(`/repos/${repo}/git/blobs`, token, {
       method: 'POST', body: { content, encoding: 'utf-8' },
@@ -77,10 +81,7 @@ async function createCommit(repo, locale, baseSha, targetOut, sourcesOut, messag
     method: 'POST',
     body: {
       base_tree: baseSha,
-      tree: await Promise.all([
-        blob(`${LOCALES_DIR}/${locale}.json`, targetOut),
-        blob(`${LOCALES_DIR}/${locale}.sources.json`, sourcesOut),
-      ]),
+      tree: await Promise.all(Object.entries(files).map(([path, content]) => blob(path, content))),
     },
   });
   const commit = await gh(`/repos/${repo}/git/commits`, token, {
@@ -154,13 +155,18 @@ async function send(repo, { locale, rows, base_sha: baseSha }, appId, privateKey
   const token = await installationToken(appId, privateKey, repo, {
     contents: 'write', pull_requests: 'write',
   });
-  const { targetOut, sourcesOut, report } = await readPlan(repo, locale, rows, baseSha, token);
+  const { targetOut, sourcesOut, mirrorsOut, report } = await readPlan(repo, locale, rows, baseSha, token);
   const sent = report.sent.length;
   const stopped = report.stopped.length;
   if (sent === 0) return json(200, { pr_url: null, pr_number: null, sent, stopped, closed: [] });
 
   const title = `Translate: ${sent} ${sent === 1 ? 'text' : 'texter'} (${locale})`;
-  const commitSha = await createCommit(repo, locale, baseSha, targetOut, sourcesOut, title, token);
+  const files = {
+    [`${LOCALES_DIR}/${locale}.json`]: targetOut,
+    [`${LOCALES_DIR}/${locale}.sources.json`]: sourcesOut,
+    ...mirrorsOut,
+  };
+  const commitSha = await createCommit(repo, baseSha, files, title, token);
   const branch = await createBranch(repo, locale, commitSha, token);
 
   let pr;
