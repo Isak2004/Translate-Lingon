@@ -204,6 +204,16 @@ export function Editor() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [activeSection, setActiveSection] = useState<string | null>(null);
+  // Sektionspanelen är hopfälld som standard; läget sparas per webbläsare.
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
+    try { return localStorage.getItem('sidebarOpen') === '1'; } catch { return false; }
+  });
+  const toggleSidebar = () => {
+    setSidebarOpen((open) => {
+      try { localStorage.setItem('sidebarOpen', open ? '0' : '1'); } catch { /* ignore */ }
+      return !open;
+    });
+  };
   const [visibleCount, setVisibleCount] = useState(100);
 
   const [historyKey, setHistoryKey] = useState<string | null>(null);
@@ -1320,7 +1330,28 @@ export function Editor() {
       {/* Body */}
       <div className="editor-body">
         {/* Sidebar */}
+        {!sidebarOpen ? (
+          <button
+            className="sidebar-collapsed"
+            onClick={toggleSidebar}
+            title="Visa sektioner"
+            aria-label="Visa sektioner"
+          >
+            <span className="sidebar-arrow">›</span>
+            {activeSection && !search && (
+              <span className="sidebar-collapsed-label">{activeSection}</span>
+            )}
+          </button>
+        ) : (
         <div className="sidebar">
+          <button
+            className="sidebar-toggle"
+            onClick={toggleSidebar}
+            title="Dölj sektioner"
+            aria-label="Dölj sektioner"
+          >
+            ‹
+          </button>
           <div
             className={`sidebar-section ${activeSection === null && !search ? 'active' : ''}`}
             onClick={() => {
@@ -1345,6 +1376,7 @@ export function Editor() {
             </div>
           ))}
         </div>
+        )}
 
         {/* Content */}
         <div className="content">
