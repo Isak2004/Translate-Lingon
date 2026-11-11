@@ -130,6 +130,14 @@ a:hover { text-decoration: underline; }
 }
 .subtitle { color: var(--muted); margin-bottom: 32px; font-size: 14px; }
 .empty { color: var(--faint); padding: 24px 0; font-size: 14px; }
+.project-hint {
+  margin: 0 0 20px;
+  padding: 10px 14px;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--sage-tint);
+  border-radius: var(--r-sm);
+}
 
 /* Skapa-formulär */
 .create-form {
@@ -1357,6 +1365,7 @@ a:hover { text-decoration: underline; }
 }
 .guide-content section { margin-bottom: 36px; }
 .guide-content h2 { font-size: 18px; font-weight: 600; margin: 0 0 12px; }
+.guide-content h3 { font-size: 15px; font-weight: 600; margin: 16px 0 6px; }
 .guide-content p { margin: 0 0 12px; }
 .guide-content ul, .guide-content ol { margin: 0 0 12px; padding-left: 22px; }
 .guide-content li { margin-bottom: 6px; }

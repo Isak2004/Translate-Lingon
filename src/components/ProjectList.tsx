@@ -111,6 +111,11 @@ export function ProjectList() {
         <p className="subtitle" style={{ marginBottom: 0 }}>by lingon.io</p>
       </div>
 
+      <p className="project-hint">
+        Klicka på det projekt som motsvarar önskad applikation, miljö och språk.
+        (Du ska inte skapa ett nytt projekt.)
+      </p>
+
       <form className="create-form" onSubmit={createProject}>
         <input
           type="text"

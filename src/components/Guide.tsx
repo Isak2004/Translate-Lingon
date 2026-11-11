@@ -19,6 +19,32 @@ export function Guide() {
       </div>
 
       <div className="guide-content">
+        <section>
+          <h2>Gör så här</h2>
+          <ol className="guide-routine">
+            <li>Öppna projektet. Nya texter hämtas automatiskt.</li>
+          </ol>
+
+          <h3>Enstaka texter</h3>
+          <ol className="guide-routine" start={2}>
+            <li>Använd sökfunktionen för att hitta din text.</li>
+            <li>Ändra och spara texten.</li>
+            <li>Klicka <b>Skicka till PDH</b>. Kolla listan du får och tryck <b>Skicka</b>.</li>
+          </ol>
+
+          <h3>Ett större antal texter</h3>
+          <ol className="guide-routine" start={2}>
+            <li>
+              Klicka <b>Granska med AI</b>. AI:n kollar om den hittar någon översättning
+              som verkar fel. Bara nya och ändrade texter granskas.
+            </li>
+            <li>Gå igenom filtren <b>Ej godkänd</b> och <b>Engelska ändrad</b>. Rätta eller godkänn.</li>
+            <li><b>Skicka till PDH</b>. Läs igenom listan och tryck <b>Skicka</b>.</li>
+          </ol>
+
+          <p>Dina ändringar kommer in i PDH vid nästa uppdatering.</p>
+        </section>
+
         <section className="guide-answer">
           <h2>Kan jag förstöra något?</h2>
           <p className="guide-lead">
@@ -98,17 +124,6 @@ export function Guide() {
             ändrade och skickas med nästa gång. Det är ofarligt: en text som redan finns
             i PDH skickas inte igen.
           </p>
-        </section>
-
-        <section>
-          <h2>Gör så här</h2>
-          <ol className="guide-routine">
-            <li>Öppna projektet. De senaste texterna hämtas av sig själva.</li>
-            <li><b>Granska med AI</b>. Bara nya och ändrade texter granskas.</li>
-            <li>Gå igenom filtren <b>Ej godkänd</b> och <b>Engelska ändrad</b>. Rätta eller godkänn.</li>
-            <li><b>Skicka till PDH</b>. Läs igenom listan och tryck <b>Skicka</b>.</li>
-            <li>När utvecklaren har godkänt: öppna projektet igen.</li>
-          </ol>
         </section>
 
         <section>
