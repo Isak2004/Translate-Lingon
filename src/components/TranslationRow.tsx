@@ -89,12 +89,25 @@ export const TranslationRow = memo(function TranslationRow({
         </button>
         <code>{t.key}</code>
         {category && (
-          <span className={`category-badge category-${category}`}>
-            {category === 'ai-approved'
-              ? '✅'
-              : category === 'ai-rejected'
-                ? '❌'
-                : '✋'}
+          <span
+            className={`category-badge category-${category}`}
+            title={
+              category === 'not-reviewed'
+                ? 'Ej granskad av AI'
+                : category === 'ai-approved'
+                  ? 'AI-godkänd'
+                  : category === 'ai-rejected'
+                    ? 'Ej godkänd'
+                    : 'Manuellt godkänd'
+            }
+          >
+            {category === 'not-reviewed'
+              ? '⏳'
+              : category === 'ai-approved'
+                ? '✅'
+                : category === 'ai-rejected'
+                  ? '❌'
+                  : '✋'}
           </span>
         )}
         {isMissing && !hasAiFlag && (

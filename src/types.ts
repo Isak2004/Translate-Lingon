@@ -23,7 +23,7 @@ export interface Translation {
   updated_at: string;
 }
 
-export type ReviewCategory = 'ai-approved' | 'ai-rejected' | 'ai-rejected-manually-approved';
+export type ReviewCategory = 'not-reviewed' | 'ai-approved' | 'ai-rejected' | 'ai-rejected-manually-approved';
 
 export type ChangeType =
   | 'edit'

@@ -176,10 +176,14 @@ function getCategory(
 ): ReviewCategory {
   const isMissing = !t.target_text && !!t.source_text;
   if (isMissing) return 'ai-rejected';
+  const manuallyApproved = !!t.target_text && t.manually_approved_text === t.target_text;
   if (hasFinding) {
-    return t.target_text && t.manually_approved_text === t.target_text
-      ? 'ai-rejected-manually-approved'
-      : 'ai-rejected';
+    return manuallyApproved ? 'ai-rejected-manually-approved' : 'ai-rejected';
+  }
+  // Ingen flagga betyder bara "AI-godkänd" om AI:n faktiskt har granskat texten.
+  // Ogranskade texter (nya, eller ändrade i PDH) får aldrig räknas som godkända.
+  if (!t.ai_reviewed_at) {
+    return manuallyApproved ? 'ai-rejected-manually-approved' : 'not-reviewed';
   }
   return 'ai-approved';
 }
@@ -188,7 +192,7 @@ function getCategory(
 
 interface Section { key: string; count: number; }
 
-type Filter = 'all' | 'ai-approved' | 'ai-rejected' | 'ai-rejected-manually-approved' | 'manually-changed' | 'source-changed';
+type Filter = 'all' | 'not-reviewed' | 'ai-approved' | 'ai-rejected' | 'ai-rejected-manually-approved' | 'manually-changed' | 'source-changed';
 
 export function Editor() {
   const { id } = useParams<{ id: string }>();
@@ -1101,25 +1105,23 @@ export function Editor() {
     return map;
   }, [aiFindings]);
 
-  const aiDone = useMemo(() => translations.some((t) => !!t.ai_reviewed_at), [translations]);
-
   const categoryMap = useMemo(() => {
     const map = new Map<string, ReviewCategory>();
-    if (!aiDone) return map;
     for (const t of translations) {
       map.set(t.id, getCategory(t, aiFindingsByKey.has(t.key)));
     }
     return map;
-  }, [translations, aiDone, aiFindingsByKey]);
+  }, [translations, aiFindingsByKey]);
 
   const categoryCounts = useMemo(() => {
-    let approved = 0, rejected = 0, manuallyApproved = 0;
+    let notReviewed = 0, approved = 0, rejected = 0, manuallyApproved = 0;
     for (const cat of categoryMap.values()) {
-      if (cat === 'ai-approved') approved++;
+      if (cat === 'not-reviewed') notReviewed++;
+      else if (cat === 'ai-approved') approved++;
       else if (cat === 'ai-rejected') rejected++;
       else manuallyApproved++;
     }
-    return { approved, rejected, manuallyApproved };
+    return { notReviewed, approved, rejected, manuallyApproved };
   }, [categoryMap]);
 
   const manuallyChangedCount = useMemo(() => {
@@ -1176,12 +1178,12 @@ export function Editor() {
       items = items.filter((t) => t.imported_target_text !== null && t.target_text !== t.imported_target_text && t.target_text);
     } else if (filter === 'source-changed') {
       items = items.filter(isSourceChanged);
-    } else if (aiDone && filter !== 'all') {
+    } else if (filter !== 'all') {
       items = items.filter((t) => categoryMap.get(t.id) === filter);
     }
 
     return items;
-  }, [translations, search, activeSection, filter, aiDone, categoryMap]);
+  }, [translations, search, activeSection, filter, categoryMap]);
 
   useEffect(() => {
     setVisibleCount(100);
@@ -1280,6 +1282,15 @@ export function Editor() {
             >
               <span>Alla</span>
               <span className="pill-count">{totalKeys.toLocaleString('sv-SE')}</span>
+            </button>
+            <button
+              className={`pill pill-not-reviewed ${filter === 'not-reviewed' ? 'active' : ''}`}
+              onClick={() => setFilter('not-reviewed')}
+              title="Texter som AI:n inte har granskat än. Kör Granska med AI."
+            >
+              <span className="pill-dot" />
+              <span>Ej granskad</span>
+              <span className="pill-count">{categoryCounts.notReviewed.toLocaleString('sv-SE')}</span>
             </button>
             <button
               className={`pill pill-approved ${filter === 'ai-approved' ? 'active' : ''}`}
@@ -1393,7 +1404,7 @@ export function Editor() {
                   key={t.id}
                   translation={t}
                   aiFindings={aiFindingsByKey.get(t.key)}
-                  category={aiDone ? categoryMap.get(t.id) : undefined}
+                  category={categoryMap.get(t.id)}
                   hasHistory={true}
                   onSave={handleSave}
                   onToggleApproved={handleToggleApproved}

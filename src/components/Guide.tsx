@@ -207,6 +207,15 @@ export function Guide() {
               Då skapas en ny pull request från PDH:s senaste version och den gamla stängs.
             </dd>
 
+            <dt>Vad betyder "Ej granskad"?</dt>
+            <dd>
+              AI:n har inte granskat texten än. Det gäller nya texter från PDH, och texter
+              som har ändrats i PDH sedan de granskades (då gäller ett tidigare godkännande
+              inte längre). Kör <b>Granska med AI</b>, så hamnar de under{' '}
+              <b>AI-godkänd</b> eller <b>Ej godkänd</b>. En ogranskad text räknas aldrig
+              som godkänd, men du kan godkänna den manuellt direkt.
+            </dd>
+
             <dt>Vad betyder "Engelska ändrad"?</dt>
             <dd>
               Engelskan har ändrats i PDH efter att du ändrade eller godkände den svenska

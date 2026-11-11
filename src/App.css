@@ -1100,6 +1100,7 @@ a:hover { text-decoration: underline; }
 .conflict-take:hover { background: color-mix(in srgb, var(--amber) 15%, transparent); }
 
 /* ── Category filter pill dot colors ── */
+.pill-not-reviewed .pill-dot { background: var(--faint); }
 .pill-approved .pill-dot { background: var(--sage); }
 .pill-rejected .pill-dot { background: var(--berry); }
 .pill-manually-approved .pill-dot { background: #6366f1; }
